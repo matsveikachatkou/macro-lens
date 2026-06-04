@@ -19,6 +19,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 import time
 import uuid
+import concurrent.futures
 from tenacity import retry, wait_exponential, stop_after_attempt
 
 
@@ -72,27 +73,26 @@ SECONDARY_SERIES = {
 
 
 def fetch_fred_series(fred: Fred, series_id: str, observation_date: Optional[str] = None) -> dict:
-    """Fetch a FRED series.
-
-    In backtest mode (observation_date set) we lock realtime_start=realtime_end=observation_date
-    to get the vintage actually available on that date — eliminating look-ahead bias
-    from data revisions (ALFRED under the hood).
-    """
     try:
-        if observation_date:
-            start_date = (
-                datetime.strptime(observation_date, "%Y-%m-%d") - timedelta(days=365)
-            ).strftime("%Y-%m-%d")
-            data = fred.get_series(
-                series_id,
-                observation_start=start_date,
-                observation_end=observation_date,
-                realtime_start=observation_date,
-                realtime_end=observation_date,
-            )
-        else:
-            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
-            data = fred.get_series(series_id, observation_start=start_date)
+        def _fetch():
+            if observation_date:
+                start_date = (
+                    datetime.strptime(observation_date, "%Y-%m-%d") - timedelta(days=365)
+                ).strftime("%Y-%m-%d")
+                return fred.get_series(
+                    series_id,
+                    observation_start=start_date,
+                    observation_end=observation_date,
+                    realtime_start=observation_date,
+                    realtime_end=observation_date,
+                )
+            else:
+                start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+                return fred.get_series(series_id, observation_start=start_date)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_fetch)
+            data = future.result(timeout=15)
 
         data = data.dropna()
         if len(data) == 0:
@@ -108,9 +108,11 @@ def fetch_fred_series(fred: Fred, series_id: str, observation_date: Optional[str
             "change": mom_change,
             "date": str(data.index[-1].date()),
         }
+    except concurrent.futures.TimeoutError:
+        return {"error": f"timeout fetching {series_id}"}
     except Exception as e:
         return {"error": str(e)}
-
+        
 
 def fetch_vix(observation_date: Optional[str] = None) -> dict:
     """Fetch VIX from yFinance. In backtest mode returns the closest prior close."""
