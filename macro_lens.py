@@ -140,6 +140,13 @@ class Confidence(str, Enum):
     low = "low"
 
 
+class RegimeType(str, Enum):
+    high_high = "High Growth / High Inflation"
+    high_low  = "High Growth / Low Inflation"
+    low_high  = "Low Growth / High Inflation"
+    low_low   = "Low Growth / Low Inflation"
+
+
 class RegimeOutput(BaseModel):
     growth_direction: GrowthDirection = Field(
         description="Whether growth is rising or falling relative to trend"
@@ -147,14 +154,14 @@ class RegimeOutput(BaseModel):
     inflation_direction: InflationDirection = Field(
         description="Whether inflation is rising or falling relative to trend"
     )
-    regime: str = Field(
-        description="One of: 'High Growth / High Inflation', 'High Growth / Low Inflation', 'Low Growth / High Inflation', 'Low Growth / Low Inflation'"
+    regime: RegimeType = Field(
+        description="One of the four Bridgewater 2x2 quadrants"
     )
     regime_confidence: Confidence = Field(
         description="High if indicators clearly point to one quadrant, low if mixed signals"
     )
     regime_rationale: str = Field(
-        description="2-3 sentence explanation of the classification citing specific indicators"
+        description="2-3 sentence explanation citing specific indicators"
     )
 
 
@@ -205,14 +212,13 @@ Macro indicators:
     result: RegimeOutput = structured_llm.invoke(messages)
 
     return {
-        "growth_direction": result.growth_direction.value,
-        "inflation_direction": result.inflation_direction.value,
-        "regime": result.regime,
-        "regime_confidence": result.regime_confidence.value,
-        "regime_rationale": result.regime_rationale,
-        "previous_regime": result.regime,
-        "messages": messages,
-    }
+            "growth_direction": result.growth_direction.value,
+            "inflation_direction": result.inflation_direction.value,
+            "regime": result.regime.value,
+            "regime_confidence": result.regime_confidence.value,
+            "regime_rationale": result.regime_rationale,
+            "messages": messages,
+        }
 
 
 if __name__ == "__main__":
