@@ -139,22 +139,23 @@ def fetch_vix(observation_date: Optional[str] = None) -> dict:
 def data_fetcher(state: MacroState) -> dict:
     fred = Fred(api_key=os.getenv("FRED_API_KEY"))
     fetch_attempts = state.get("fetch_attempts", 0)
+    observation_date = state.get("observation_date")      # None in live mode
 
-    # On retry, also pull secondary series
     series_to_fetch = PRIMARY_SERIES.copy()
     if fetch_attempts > 0:
         series_to_fetch.update(SECONDARY_SERIES)
 
     macro_data = {}
     for key, series_id in series_to_fetch.items():
-        macro_data[key] = fetch_fred_series(fred, series_id)
+        macro_data[key] = fetch_fred_series(fred, series_id, observation_date)
 
-    macro_data["vix"] = fetch_vix()
+    macro_data["vix"] = fetch_vix(observation_date)
 
     return {
         "macro_data": macro_data,
         "fetch_attempts": fetch_attempts + 1,
     }
+
 
 class GrowthDirection(str, Enum):
     rising = "rising"
