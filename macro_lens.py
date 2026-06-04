@@ -704,13 +704,13 @@ def build_graph():
 
 
 if __name__ == "__main__":
-    import uuid
 
     graph = build_graph()
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
-    initial_state = {
+    initial_state: MacroState = {
         "current_date": datetime.now().strftime("%Y-%m-%d"),
+        "observation_date": None,          # v2: None = live mode
         "macro_data": None,
         "fetch_attempts": 0,
         "data_requests": None,
