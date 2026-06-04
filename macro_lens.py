@@ -166,7 +166,7 @@ class RegimeOutput(BaseModel):
 
 
 def regime_classifier(state: MacroState) -> dict:
-    llm = ChatOpenAI(model="gpt-4o-mini")
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     structured_llm = llm.with_structured_output(RegimeOutput)
 
     previous_regime = state.get("previous_regime")
@@ -252,7 +252,7 @@ class AllocationOutput(BaseModel):
 
 
 def allocation_generator(state: MacroState) -> dict:
-    llm = ChatOpenAI(model="gpt-4o-mini")
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     structured_llm = llm.with_structured_output(AllocationOutput)
 
     system_message = """You are a senior multi-asset portfolio strategist.
