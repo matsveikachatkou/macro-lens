@@ -23,6 +23,7 @@ load_dotenv(override=True)
 class MacroState(TypedDict):
     # Meta
     current_date: str
+    observation_date: Optional[str]             # v2: point-in-time date for backtest
 
     # Indicators
     macro_data: Optional[Dict[str, Any]]
