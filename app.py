@@ -373,7 +373,7 @@ with gr.Blocks(title="macro-lens") as ui:
 
             with gr.Row():
                 start_slider = gr.Slider(minimum=2010, maximum=2024, value=2015, step=1, label="Start Year")
-                end_slider   = gr.Slider(minimum=2011, maximum=2025, value=2024, step=1, label="End Year")
+                end_slider   = gr.Slider(minimum=2011, maximum=2026, value=2024, step=1, label="End Year")
                 bt_run_btn   = gr.Button("▶  Run Backtest", variant="primary", scale=0)
 
             gr.Markdown("### Performance")
