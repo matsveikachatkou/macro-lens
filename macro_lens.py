@@ -66,13 +66,30 @@ SECONDARY_SERIES = {
 }
 
 
-def fetch_fred_series(fred: Fred, series_id: str) -> dict:
-    """Fetch the last observations of a FRED series efficiently."""
-    try:
-        start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
-        data = fred.get_series(series_id, observation_start=start_date)
-        data = data.dropna()
+def fetch_fred_series(fred: Fred, series_id: str, observation_date: Optional[str] = None) -> dict:
+    """Fetch a FRED series.
 
+    In backtest mode (observation_date set) we lock realtime_start=realtime_end=observation_date
+    to get the vintage actually available on that date — eliminating look-ahead bias
+    from data revisions (ALFRED under the hood).
+    """
+    try:
+        if observation_date:
+            start_date = (
+                datetime.strptime(observation_date, "%Y-%m-%d") - timedelta(days=365)
+            ).strftime("%Y-%m-%d")
+            data = fred.get_series(
+                series_id,
+                observation_start=start_date,
+                observation_end=observation_date,
+                realtime_start=observation_date,
+                realtime_end=observation_date,
+            )
+        else:
+            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+            data = fred.get_series(series_id, observation_start=start_date)
+
+        data = data.dropna()
         if len(data) == 0:
             return {"error": "no data"}
 
