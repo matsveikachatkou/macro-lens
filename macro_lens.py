@@ -8,6 +8,11 @@ from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 from datetime import datetime, timedelta
 
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
+from pydantic import BaseModel, Field
+from enum import Enum
+
 
 load_dotenv(override=True)
 
@@ -120,6 +125,95 @@ def data_fetcher(state: MacroState) -> dict:
         "fetch_attempts": fetch_attempts + 1,
     }
 
+class GrowthDirection(str, Enum):
+    rising = "rising"
+    falling = "falling"
+
+
+class InflationDirection(str, Enum):
+    rising = "rising"
+    falling = "falling"
+
+
+class Confidence(str, Enum):
+    high = "high"
+    low = "low"
+
+
+class RegimeOutput(BaseModel):
+    growth_direction: GrowthDirection = Field(
+        description="Whether growth is rising or falling relative to trend"
+    )
+    inflation_direction: InflationDirection = Field(
+        description="Whether inflation is rising or falling relative to trend"
+    )
+    regime: str = Field(
+        description="One of: 'High Growth / High Inflation', 'High Growth / Low Inflation', 'Low Growth / High Inflation', 'Low Growth / Low Inflation'"
+    )
+    regime_confidence: Confidence = Field(
+        description="High if indicators clearly point to one quadrant, low if mixed signals"
+    )
+    regime_rationale: str = Field(
+        description="2-3 sentence explanation of the classification citing specific indicators"
+    )
+
+
+def regime_classifier(state: MacroState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    structured_llm = llm.with_structured_output(RegimeOutput)
+
+    previous_regime = state.get("previous_regime")
+    macro_data = state.get("macro_data", {})
+
+    system_message = """You are a macroeconomic analyst classifying the current market regime 
+using the Bridgewater 2x2 framework. You evaluate whether growth and inflation are 
+rising or falling relative to trend, and classify the economy into one of four quadrants:
+
+- High Growth / High Inflation
+- High Growth / Low Inflation  
+- Low Growth / High Inflation (Stagflation)
+- Low Growth / Low Inflation
+
+Be conservative about declaring regime changes. If prior regime was provided, 
+require clear contradictory evidence across multiple indicators before switching."""
+
+    indicator_text = ""
+    for key, val in macro_data.items():
+        if "error" not in val:
+            indicator_text += f"\n{key.upper()}: latest={val['latest']}, previous={val['previous']}, change={val['change']}, as_of={val['date']}"
+        else:
+            indicator_text += f"\n{key.upper()}: unavailable"
+
+    user_message = f"""Today is {state['current_date']}.
+
+Macro indicators:
+{indicator_text}
+
+"""
+    if previous_regime:
+        user_message += f"Previous classified regime: {previous_regime}\n"
+    else:
+        user_message += "No previous regime on record (first run).\n"
+
+    user_message += "\nClassify the current macro regime."
+
+    messages = [
+        SystemMessage(content=system_message),
+        HumanMessage(content=user_message),
+    ]
+
+    result: RegimeOutput = structured_llm.invoke(messages)
+
+    return {
+        "growth_direction": result.growth_direction.value,
+        "inflation_direction": result.inflation_direction.value,
+        "regime": result.regime,
+        "regime_confidence": result.regime_confidence.value,
+        "regime_rationale": result.regime_rationale,
+        "previous_regime": result.regime,
+        "messages": messages,
+    }
+
 
 if __name__ == "__main__":
     from datetime import datetime
@@ -142,11 +236,17 @@ if __name__ == "__main__":
         "messages": [],
     }
 
-    print("Testing data fetcher...")
-    result = data_fetcher(test_state)
+    print("Step 1: data fetcher...")
+    fetcher_result = data_fetcher(test_state)
+    test_state.update(fetcher_result)
+    print(f"Fetched {len(test_state['macro_data'])} indicators")
 
-    print(f"Fetch attempts: {result['fetch_attempts']}")
-    print(f"Indicators fetched: {len(result['macro_data'])}")
-    print("\nSample output:")
-    for key, value in result["macro_data"].items():
-        print(f"  {key}: {value}")
+    print("\nStep 2: regime classifier...")
+    regime_result = regime_classifier(test_state)
+    test_state.update(regime_result)
+
+    print(f"Growth:     {test_state['growth_direction']}")
+    print(f"Inflation:  {test_state['inflation_direction']}")
+    print(f"Regime:     {test_state['regime']}")
+    print(f"Confidence: {test_state['regime_confidence']}")
+    print(f"Rationale:  {test_state['regime_rationale']}")
