@@ -851,6 +851,9 @@ requires-dist = [
     { name = "yfinance", specifier = ">=1.4.1" },
 ]
 
+[package.metadata.requires-dev]
+dev = []
+
 [[package]]
 name = "markdown-it-py"
 version = "4.2.0"
