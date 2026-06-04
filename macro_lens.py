@@ -221,6 +221,18 @@ Macro indicators:
         }
 
 
+def confidence_router(state: MacroState) -> str:
+    confidence = state.get("regime_confidence")
+    fetch_attempts = state.get("fetch_attempts", 0)
+
+    if confidence == "high":
+        return "allocation_generator"
+    elif fetch_attempts < 2:
+        return "data_fetcher"
+    else:
+        return "allocation_generator"
+
+
 if __name__ == "__main__":
     from datetime import datetime
 
@@ -256,3 +268,7 @@ if __name__ == "__main__":
     print(f"Regime:     {test_state['regime']}")
     print(f"Confidence: {test_state['regime_confidence']}")
     print(f"Rationale:  {test_state['regime_rationale']}")
+
+    print("\nStep 3: confidence router...")
+    route = confidence_router(test_state)
+    print(f"Router decision: {route}")
