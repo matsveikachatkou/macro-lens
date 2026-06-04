@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from typing import Annotated, Optional, Dict, Any, List
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 load_dotenv(override=True)
@@ -57,16 +57,20 @@ SECONDARY_SERIES = {
 }
 
 
-def fetch_fred_series(fred: Fred, series_id: str, periods: int = 3) -> dict:
-    """Fetch the last N observations of a FRED series."""
+def fetch_fred_series(fred: Fred, series_id: str) -> dict:
+    """Fetch the last observations of a FRED series efficiently."""
     try:
-        data = fred.get_series(series_id)
+        start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+        data = fred.get_series(series_id, observation_start=start_date)
         data = data.dropna()
+
         if len(data) == 0:
             return {"error": "no data"}
+
         latest = float(data.iloc[-1])
         previous = float(data.iloc[-2]) if len(data) >= 2 else None
         mom_change = round(latest - previous, 4) if previous is not None else None
+
         return {
             "latest": round(latest, 4),
             "previous": round(previous, 4) if previous else None,
