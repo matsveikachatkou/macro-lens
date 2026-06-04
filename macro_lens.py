@@ -408,6 +408,79 @@ def _monthly_dates(start: str = "2010-01-01", end: Optional[str] = None) -> List
     return dates
 
 
+def _compute_performance(
+    monthly_records: list,
+    monthly_returns: pd.DataFrame,
+) -> dict:
+    """Apply weights[t] to returns[t+1] and compute equity curves + metrics."""
+
+    portfolio_returns = []
+    benchmark_returns = []
+    perf_dates = []
+
+    for i, record in enumerate(monthly_records[:-1]):
+        next_date_str = monthly_records[i + 1]["date"]
+        next_dt = pd.Timestamp(next_date_str)
+
+        ret_idx = monthly_returns.index
+        mask = (ret_idx.year == next_dt.year) & (ret_idx.month == next_dt.month)
+        if not mask.any():
+            continue
+
+        ret_row = monthly_returns[mask].iloc[0]
+        w = record["weights"]
+
+        port_ret = 0.0
+        for asset, ticker in ASSET_PROXIES.items():
+            asset_w = w.get(asset, 0.0)
+            if ticker in ret_row.index and not pd.isna(ret_row[ticker]):
+                port_ret += asset_w * float(ret_row[ticker])
+
+        spy_ret = float(ret_row["SPY"]) if "SPY" in ret_row.index and not pd.isna(ret_row["SPY"]) else 0.0
+        tlt_ret = float(ret_row["TLT"]) if "TLT" in ret_row.index and not pd.isna(ret_row["TLT"]) else 0.0
+        bench_ret = 0.60 * spy_ret + 0.40 * tlt_ret
+
+        portfolio_returns.append(port_ret)
+        benchmark_returns.append(bench_ret)
+        perf_dates.append(next_dt)
+
+    port_series = pd.Series(portfolio_returns, index=perf_dates)
+    bench_series = pd.Series(benchmark_returns, index=perf_dates)
+
+    equity_curve = (1 + port_series).cumprod() * 100
+    benchmark_curve = (1 + bench_series).cumprod() * 100
+
+    def max_drawdown(curve: pd.Series) -> float:
+        rolling_max = curve.cummax()
+        return float(((curve - rolling_max) / rolling_max).min())
+
+    def sharpe(returns: pd.Series, rf: float = 0.02) -> float:
+        ann_ret = (1 + returns.mean()) ** 12 - 1
+        ann_vol = returns.std() * (12 ** 0.5)
+        return (ann_ret - rf) / ann_vol if ann_vol > 0 else float("nan")
+
+    n_months = len(port_series)
+    n_years = n_months / 12 if n_months > 0 else 1
+    total_ret_port  = float((equity_curve.iloc[-1] / 100) - 1) if n_months > 0 else 0.0
+    total_ret_bench = float((benchmark_curve.iloc[-1] / 100) - 1) if n_months > 0 else 0.0
+
+    return {
+        "equity_curve":              equity_curve,
+        "benchmark_curve":           benchmark_curve,
+        "metrics": {
+            "sharpe_portfolio":        sharpe(port_series),
+            "sharpe_benchmark":        sharpe(bench_series),
+            "max_drawdown_portfolio":  max_drawdown(equity_curve),
+            "max_drawdown_benchmark":  max_drawdown(benchmark_curve),
+            "total_return_portfolio":  total_ret_port,
+            "total_return_benchmark":  total_ret_bench,
+            "ann_return_portfolio":    float((1 + total_ret_port)  ** (1 / n_years) - 1),
+            "ann_return_benchmark":    float((1 + total_ret_bench) ** (1 / n_years) - 1),
+            "n_months":                n_months,
+        },
+    }
+
+
 def weight_calculator(state: MacroState) -> dict:
     tilts = state.get("tilts", {})
 
