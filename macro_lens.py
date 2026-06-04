@@ -357,6 +357,29 @@ TILT_MAP = {
 }
 
 
+def _monthly_dates(start: str = "2010-01-01", end: Optional[str] = None) -> List[str]:
+    """Month-end dates (YYYY-MM-DD) from start to end inclusive."""
+    start_dt = datetime.strptime(start, "%Y-%m-%d")
+    end_dt = datetime.strptime(end, "%Y-%m-%d") if end else datetime.today()
+
+    dates = []
+    current = start_dt.replace(day=1)
+    while current <= end_dt:
+        if current.month == 12:
+            last_day = current.replace(day=31)
+        else:
+            last_day = current.replace(month=current.month + 1, day=1) - timedelta(days=1)
+        if last_day > end_dt:
+            last_day = end_dt
+        dates.append(last_day.strftime("%Y-%m-%d"))
+        if current.month == 12:
+            current = current.replace(year=current.year + 1, month=1)
+        else:
+            current = current.replace(month=current.month + 1)
+
+    return dates
+    
+
 def weight_calculator(state: MacroState) -> dict:
     tilts = state.get("tilts", {})
 
