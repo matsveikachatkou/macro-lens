@@ -307,6 +307,49 @@ Key indicators:
     }
 
 
+BASELINE_WEIGHTS = {
+    "equities":         0.35,
+    "bonds":            0.30,
+    "inflation_linked": 0.10,
+    "commodities":      0.10,
+    "gold":             0.05,
+    "cash":             0.10,
+}
+
+TILT_MAP = {
+    "Strong Underweight": -0.10,
+    "Underweight":        -0.05,
+    "Neutral":             0.00,
+    "Overweight":         +0.05,
+    "Strong Overweight":  +0.10,
+}
+
+
+def weight_calculator(state: MacroState) -> dict:
+    tilts = state.get("tilts", {})
+
+    raw_weights = {}
+    for asset, baseline in BASELINE_WEIGHTS.items():
+        tilt_label = tilts.get(asset, "Neutral")
+        adjustment = TILT_MAP.get(tilt_label, 0.0)
+        raw_weights[asset] = baseline + adjustment
+
+    # Clip to zero (no shorting)
+    raw_weights = {k: max(0.0, v) for k, v in raw_weights.items()}
+
+    # Normalise to exactly 100%
+    total = sum(raw_weights.values())
+    weights = {k: round(v / total, 4) for k, v in raw_weights.items()}
+
+    # Force sum to exactly 1.0 by adjusting largest weight for rounding residual
+    residual = round(1.0 - sum(weights.values()), 4)
+    if residual != 0.0:
+        largest = max(weights, key=weights.get)
+        weights[largest] = round(weights[largest] + residual, 4)
+
+    return {"weights": weights}
+
+
 if __name__ == "__main__":
     from datetime import datetime
 
@@ -355,3 +398,12 @@ if __name__ == "__main__":
     for asset, tilt in test_state["tilts"].items():
         print(f"  {asset}: {tilt}")
     print(f"Rationale: {test_state['allocation_rationale']}")
+
+    print("\nStep 5: weight calculator...")
+    weight_result = weight_calculator(test_state)
+    test_state.update(weight_result)
+
+    print("Weights:")
+    for asset, weight in test_state["weights"].items():
+        print(f"  {asset}: {weight:.1%}")
+    print(f"  Total: {sum(test_state['weights'].values()):.4f}")
