@@ -233,6 +233,80 @@ def confidence_router(state: MacroState) -> str:
         return "allocation_generator"
 
 
+class TiltLevel(str, Enum):
+    strong_underweight = "Strong Underweight"
+    underweight        = "Underweight"
+    neutral            = "Neutral"
+    overweight         = "Overweight"
+    strong_overweight  = "Strong Overweight"
+
+
+class AllocationOutput(BaseModel):
+    equities: TiltLevel = Field(description="Tilt for global equities")
+    bonds: TiltLevel = Field(description="Tilt for nominal government bonds")
+    inflation_linked: TiltLevel = Field(description="Tilt for inflation-linked bonds / TIPS")
+    commodities: TiltLevel = Field(description="Tilt for commodities")
+    gold: TiltLevel = Field(description="Tilt for gold")
+    cash: TiltLevel = Field(description="Tilt for cash")
+    rationale: str = Field(description="3-4 sentence rationale citing the regime and key indicators")
+
+
+def allocation_generator(state: MacroState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    structured_llm = llm.with_structured_output(AllocationOutput)
+
+    system_message = """You are a senior multi-asset portfolio strategist.
+Given a macroeconomic regime classification, you produce tactical tilts 
+relative to a neutral benchmark for six asset classes.
+
+Bridgewater 2x2 regime guidance:
+- High Growth / High Inflation:  overweight equities and commodities, underweight bonds, neutral gold
+- High Growth / Low Inflation:   strong overweight equities, overweight bonds, underweight commodities and gold
+- Low Growth / High Inflation:   underweight equities and bonds, strong overweight commodities and gold, overweight cash
+- Low Growth / Low Inflation:    overweight bonds, neutral equities, underweight commodities, neutral gold
+
+Apply these as starting points but adjust based on the specific indicator readings provided."""
+
+    user_message = f"""Today is {state['current_date']}.
+
+Regime: {state['regime']}
+Growth direction: {state['growth_direction']}
+Inflation direction: {state['inflation_direction']}
+Confidence: {state['regime_confidence']}
+Rationale: {state['regime_rationale']}
+
+Key indicators:
+"""
+    macro_data = state.get("macro_data", {})
+    for key, val in macro_data.items():
+        if "error" not in val:
+            user_message += f"  {key.upper()}: latest={val['latest']}, change={val['change']}\n"
+
+    user_message += "\nGenerate tactical tilts for each asset class."
+
+    messages = [
+        SystemMessage(content=system_message),
+        HumanMessage(content=user_message),
+    ]
+
+    result: AllocationOutput = structured_llm.invoke(messages)
+
+    tilts = {
+        "equities":        result.equities.value,
+        "bonds":           result.bonds.value,
+        "inflation_linked": result.inflation_linked.value,
+        "commodities":     result.commodities.value,
+        "gold":            result.gold.value,
+        "cash":            result.cash.value,
+    }
+
+    return {
+        "tilts": tilts,
+        "allocation_rationale": result.rationale,
+        "messages": messages,
+    }
+
+
 if __name__ == "__main__":
     from datetime import datetime
 
@@ -272,3 +346,12 @@ if __name__ == "__main__":
     print("\nStep 3: confidence router...")
     route = confidence_router(test_state)
     print(f"Router decision: {route}")
+
+    print("\nStep 4: allocation generator...")
+    allocation_result = allocation_generator(test_state)
+    test_state.update(allocation_result)
+
+    print(f"Tilts:")
+    for asset, tilt in test_state["tilts"].items():
+        print(f"  {asset}: {tilt}")
+    print(f"Rationale: {test_state['allocation_rationale']}")
