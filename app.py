@@ -112,9 +112,9 @@ def run_analysis():
     )
 
 
-with gr.Blocks(title="macro-lens", theme=gr.themes.Soft()) as ui:
+with gr.Blocks(title="macro-lens") as ui:
 
-    gr.Markdown("# 🔭 macro-lens")
+    gr.Markdown("# macro-lens")
     gr.Markdown("**Macro Regime Detection · Tactical Asset Allocation**  \nPowered by FRED · yFinance · GPT-4o-mini · LangGraph")
 
     run_btn = gr.Button("▶  Run Analysis", variant="primary", scale=0)
@@ -167,4 +167,11 @@ with gr.Blocks(title="macro-lens", theme=gr.themes.Soft()) as ui:
     )
 
 if __name__ == "__main__":
-    ui.launch(inbrowser=True)
+        ui.launch(
+        inbrowser=True,
+        theme=gr.themes.Soft(),
+        css="""
+            * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; }
+            .gradio-container { max-width: 1400px !important; }
+        """
+)
