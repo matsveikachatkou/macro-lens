@@ -4,6 +4,11 @@ from datetime import datetime
 import uuid
 from macro_lens import build_graph, MacroState
 
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from macro_lens import run_backtest, ASSET_PROXIES
+
+
 TILT_ICONS = {
     "Strong Overweight":  "▲▲",
     "Overweight":         "▲",
@@ -11,6 +16,103 @@ TILT_ICONS = {
     "Underweight":        "▼",
     "Strong Underweight": "▼▼",
 }
+
+REGIME_COLORS = {
+    "High Growth / High Inflation": "#f59e0b",
+    "High Growth / Low Inflation":  "#22c55e",
+    "Low Growth / High Inflation":  "#ef4444",
+    "Low Growth / Low Inflation":   "#3b82f6",
+}
+
+
+def _build_equity_chart(equity_curve, benchmark_curve, monthly_records) -> go.Figure:
+    fig = make_subplots(
+        rows=2, cols=1,
+        row_heights=[0.75, 0.25],
+        shared_xaxes=True,
+        vertical_spacing=0.04,
+        subplot_titles=("Cumulative Performance (Base 100)", "Active Return vs 60/40"),
+    )
+
+    # Equity curves
+    fig.add_trace(
+        go.Scatter(
+            x=equity_curve.index,
+            y=equity_curve.values,
+            name="Macro-Lens",
+            line=dict(color="#6366f1", width=2.5),
+            hovertemplate="%{x|%b %Y}<br>Portfolio: %{y:.1f}<extra></extra>",
+        ),
+        row=1, col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=benchmark_curve.index,
+            y=benchmark_curve.values,
+            name="60/40 Benchmark",
+            line=dict(color="#94a3b8", width=1.5, dash="dot"),
+            hovertemplate="%{x|%b %Y}<br>60/40: %{y:.1f}<extra></extra>",
+        ),
+        row=1, col=1,
+    )
+
+    # Regime shading
+    if monthly_records:
+        prev_regime = None
+        band_start = None
+
+        def add_band(start, end, regime):
+            fig.add_vrect(
+                x0=start, x1=end,
+                fillcolor=REGIME_COLORS.get(regime, "#e2e8f0"),
+                opacity=0.12,
+                line_width=0,
+                row=1, col=1,
+            )
+
+        for rec in monthly_records:
+            r = rec["regime"]
+            d = pd.Timestamp(rec["date"])
+            if r != prev_regime:
+                if prev_regime is not None and band_start is not None:
+                    add_band(band_start, d, prev_regime)
+                band_start = d
+                prev_regime = r
+
+        if prev_regime and band_start is not None and len(equity_curve) > 0:
+            add_band(band_start, equity_curve.index[-1], prev_regime)
+
+    # Active return bars
+    if len(equity_curve) > 0 and len(benchmark_curve) > 0:
+        common_idx = equity_curve.index.intersection(benchmark_curve.index)
+        active = (
+            equity_curve.loc[common_idx].pct_change().dropna()
+            - benchmark_curve.loc[common_idx].pct_change().dropna()
+        ) * 100
+
+        fig.add_trace(
+            go.Bar(
+                x=active.index,
+                y=active.values,
+                name="Active Return",
+                marker_color=["#22c55e" if v >= 0 else "#ef4444" for v in active.values],
+                opacity=0.7,
+                hovertemplate="%{x|%b %Y}<br>Active: %{y:.2f}%<extra></extra>",
+            ),
+            row=2, col=1,
+        )
+        fig.add_hline(y=0, line_width=1, line_color="#64748b", row=2, col=1)
+
+    fig.update_layout(
+        height=520,
+        margin=dict(l=0, r=0, t=40, b=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1),
+        hovermode="x unified",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+
+    return fig
 
 
 def run_analysis():
