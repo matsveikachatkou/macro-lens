@@ -17,6 +17,10 @@ from enum import Enum
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 
+import time
+import uuid
+from tenacity import retry, wait_exponential, stop_after_attempt
+
 
 load_dotenv(override=True)
 
@@ -478,6 +482,104 @@ def _compute_performance(
             "ann_return_benchmark":    float((1 + total_ret_bench) ** (1 / n_years) - 1),
             "n_months":                n_months,
         },
+    }
+
+
+def run_backtest(
+    start: str = "2010-01-01",
+    end: Optional[str] = None,
+    progress_callback=None,
+) -> dict:
+    """Run the full point-in-time backtest.
+    weights[t] → returns[t+1], no look-ahead.
+    """
+    if end is None:
+        end = datetime.today().strftime("%Y-%m-%d")
+
+    observation_dates = _monthly_dates(start, end)
+    n_dates = len(observation_dates)
+
+    # Fetch all price data upfront — one yfinance call for the whole range
+    all_tickers = list(ASSET_PROXIES.values())
+    prices = _fetch_price_history(all_tickers, start, end)
+    monthly_returns = prices.pct_change().dropna()
+
+    graph = build_graph()
+    monthly_records = []
+    previous_regime = None
+
+    # THE FIX: Wrap the invoke call in a tenacity retry to survive rate limits
+    @retry(
+        wait=wait_exponential(multiplier=1, min=2, max=10), 
+        stop=stop_after_attempt(3),
+        reraise=True
+    )
+    def invoke_with_retry(state, config):
+        return graph.invoke(state, config=config)
+
+    for i, obs_date in enumerate(observation_dates):
+        if progress_callback:
+            progress_callback(i / n_dates, f"Processing {obs_date}  ({i+1}/{n_dates})")
+
+        # THE FIX: Generate a NEW thread ID per month to prevent context bloat
+        # We don't need LangGraph memory because previous_regime handles state
+        config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+        
+        initial_state: MacroState = {
+            "current_date": obs_date,
+            "observation_date": obs_date,
+            "macro_data": None,
+            "fetch_attempts": 0,
+            "data_requests": None,
+            "growth_direction": None,
+            "inflation_direction": None,
+            "regime": None,
+            "regime_confidence": None,
+            "regime_rationale": None,
+            "previous_regime": previous_regime,
+            "tilts": None,
+            "weights": None,
+            "allocation_rationale": None,
+            "report": None,
+            "messages": [],
+        }
+
+        try:
+            result = invoke_with_retry(initial_state, config)
+        except Exception as e:
+            print(f"  WARNING: {obs_date} failed permanently ({e}), using baseline weights")
+            result = {
+                "weights": BASELINE_WEIGHTS.copy(),
+                "regime": previous_regime or "Unknown",
+                "regime_confidence": "low",
+            }
+
+        weights = result.get("weights", BASELINE_WEIGHTS.copy())
+        previous_regime = result.get("regime")
+
+        monthly_records.append({
+            "date": obs_date,
+            "regime": result.get("regime", "Unknown"),
+            "confidence": result.get("regime_confidence", "low"),
+            "weights": weights.copy(),
+        })
+
+        # Base rate limit buffer
+        time.sleep(1)
+
+    if progress_callback:
+        progress_callback(0.95, "Computing performance metrics...")
+        
+    result_perf = _compute_performance(monthly_records, monthly_returns)
+    
+    if progress_callback:
+        progress_callback(1.0, "Done.")
+
+    return {
+        "equity_curve":    result_perf["equity_curve"],
+        "benchmark_curve": result_perf["benchmark_curve"],
+        "monthly_records": monthly_records,
+        "metrics":         result_perf["metrics"],
     }
 
 
