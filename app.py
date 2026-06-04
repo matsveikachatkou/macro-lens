@@ -295,59 +295,102 @@ def run_analysis():
     )
 
 
+def run_backtest_ui(start_year: int, end_year: int, progress=gr.Progress()):
+    start_str = f"{int(start_year)}-01-01"
+    end_str   = f"{int(end_year)}-12-31"
+
+    def cb(frac, msg):
+        progress(frac, desc=msg)
+
+    try:
+        result = run_backtest(start=start_str, end=end_str, progress_callback=cb)
+    except Exception as e:
+        empty = go.Figure()
+        empty.add_annotation(
+            text=f"Backtest failed: {e}",
+            xref="paper", yref="paper", x=0.5, y=0.5,
+            showarrow=False, font=dict(color="#ef4444", size=14),
+        )
+        return empty, empty, f"<p style='color:#ef4444'>Error: {e}</p>"
+
+    equity_fig   = _build_equity_chart(result["equity_curve"], result["benchmark_curve"], result["monthly_records"])
+    timeline_fig = _build_regime_timeline(result["monthly_records"])
+    metrics_str  = _metrics_html(result["metrics"])
+
+    return equity_fig, timeline_fig, metrics_str
+
+
 with gr.Blocks(title="macro-lens") as ui:
 
     gr.Markdown("# macro-lens")
-    gr.Markdown("**Macro Regime Detection · Tactical Asset Allocation**  \nPowered by FRED · yFinance · GPT-4o-mini · LangGraph")
-
-    run_btn = gr.Button("▶  Run Analysis", variant="primary", scale=0)
-
-    gr.Markdown("### Regime")
-    regime_box = gr.Markdown()
-
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("### Key Indicators")
-            indicators_table = gr.Dataframe(
-                headers=["Indicator", "Latest", "Change", "As Of"],
-                interactive=False,
-                wrap=False,
-            )
-        with gr.Column():
-            gr.Markdown("### Tactical Allocation")
-            allocation_table = gr.Dataframe(
-                headers=["Asset Class", "Weight", "Tilt"],
-                interactive=False,
-                wrap=False,
-            )
-
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("### Regime Rationale")
-            regime_rationale_box = gr.Textbox(
-                interactive=False,
-                show_label=False,
-                lines=4,
-            )
-        with gr.Column():
-            gr.Markdown("### Allocation Rationale")
-            allocation_rationale_box = gr.Textbox(
-                interactive=False,
-                show_label=False,
-                lines=4,
-            )
-
-    run_btn.click(
-        fn=run_analysis,
-        inputs=[],
-        outputs=[
-            regime_box,
-            indicators_table,
-            allocation_table,
-            regime_rationale_box,
-            allocation_rationale_box,
-        ],
+    gr.Markdown(
+        "**Macro Regime Detection · Tactical Asset Allocation · Backtest Engine**  \n"
+        "Powered by FRED (point-in-time vintages) · yFinance · GPT-4o-mini · LangGraph"
     )
+
+    with gr.Tabs():
+
+        with gr.Tab("Live Analysis"):
+            run_btn = gr.Button("▶  Run Analysis", variant="primary", scale=0)
+
+            gr.Markdown("### Regime")
+            regime_box = gr.Markdown()
+
+            with gr.Row():
+                with gr.Column():
+                    gr.Markdown("### Key Indicators")
+                    indicators_table = gr.Dataframe(
+                        headers=["Indicator", "Latest", "Change", "As Of"],
+                        interactive=False, wrap=False,
+                    )
+                with gr.Column():
+                    gr.Markdown("### Tactical Allocation")
+                    allocation_table = gr.Dataframe(
+                        headers=["Asset Class", "Weight", "Tilt"],
+                        interactive=False, wrap=False,
+                    )
+
+            with gr.Row():
+                with gr.Column():
+                    gr.Markdown("### Regime Rationale")
+                    regime_rationale_box = gr.Textbox(interactive=False, show_label=False, lines=4)
+                with gr.Column():
+                    gr.Markdown("### Allocation Rationale")
+                    allocation_rationale_box = gr.Textbox(interactive=False, show_label=False, lines=4)
+
+            run_btn.click(
+                fn=run_analysis,
+                inputs=[],
+                outputs=[regime_box, indicators_table, allocation_table,
+                         regime_rationale_box, allocation_rationale_box],
+            )
+
+        with gr.Tab("Backtest"):
+            gr.Markdown(
+                "Runs the regime pipeline monthly using **point-in-time FRED vintages**. "
+                "Weights at month-end *t* are applied to ETF returns in month *t+1*."
+            )
+
+            with gr.Row():
+                start_slider = gr.Slider(minimum=2010, maximum=2024, value=2015, step=1, label="Start Year")
+                end_slider   = gr.Slider(minimum=2011, maximum=2025, value=2024, step=1, label="End Year")
+                bt_run_btn   = gr.Button("▶  Run Backtest", variant="primary", scale=0)
+
+            gr.Markdown("### Performance")
+            equity_chart = gr.Plot()
+
+            gr.Markdown("### Regime Timeline")
+            regime_timeline = gr.Plot()
+
+            gr.Markdown("### Summary Metrics")
+            metrics_box = gr.HTML()
+
+            bt_run_btn.click(
+                fn=run_backtest_ui,
+                inputs=[start_slider, end_slider],
+                outputs=[equity_chart, regime_timeline, metrics_box],
+            )
+
 
 if __name__ == "__main__":
         ui.launch(
