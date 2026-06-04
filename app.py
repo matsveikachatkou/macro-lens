@@ -115,6 +115,87 @@ def _build_equity_chart(equity_curve, benchmark_curve, monthly_records) -> go.Fi
     return fig
 
 
+def _metrics_html(metrics: dict) -> str:
+    def fmt_pct(v):
+        return f"{v*100:+.1f}%" if v is not None else "N/A"
+
+    def fmt_f(v):
+        return f"{v:.2f}" if v is not None and v == v else "N/A"  # nan check
+
+    rows = [
+        ("Total Return",  fmt_pct(metrics.get("total_return_portfolio")),  fmt_pct(metrics.get("total_return_benchmark"))),
+        ("Ann. Return",   fmt_pct(metrics.get("ann_return_portfolio")),    fmt_pct(metrics.get("ann_return_benchmark"))),
+        ("Sharpe Ratio",  fmt_f(metrics.get("sharpe_portfolio")),          fmt_f(metrics.get("sharpe_benchmark"))),
+        ("Max Drawdown",  fmt_pct(metrics.get("max_drawdown_portfolio")),  fmt_pct(metrics.get("max_drawdown_benchmark"))),
+        ("Months",        str(metrics.get("n_months", "N/A")),             ""),
+    ]
+
+    html = """
+    <style>
+      .mt { width:100%; border-collapse:collapse; font-size:14px; }
+      .mt th { text-align:left; padding:8px 12px; color:#94a3b8;
+               font-weight:500; border-bottom:1px solid #334155; }
+      .mt td { padding:8px 12px; border-bottom:1px solid #1e293b; }
+      .mt tr:last-child td { border-bottom:none; }
+      .port { color:#6366f1; font-weight:600; }
+      .bench { color:#94a3b8; }
+    </style>
+    <table class="mt">
+      <thead><tr>
+        <th>Metric</th><th>Macro-Lens</th><th>60/40</th>
+      </tr></thead><tbody>
+    """
+    for label, port_val, bench_val in rows:
+        html += f"<tr><td style='color:#cbd5e1'>{label}</td><td class='port'>{port_val}</td><td class='bench'>{bench_val}</td></tr>"
+
+    html += "</tbody></table>"
+    return html
+
+
+def _build_regime_timeline(monthly_records: list) -> go.Figure:
+    if not monthly_records:
+        return go.Figure()
+
+    dates  = [pd.Timestamp(r["date"]) for r in monthly_records]
+    colors = [REGIME_COLORS.get(r["regime"], "#94a3b8") for r in monthly_records]
+    labels = [r["regime"] for r in monthly_records]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=dates,
+        y=[1] * len(dates),
+        marker_color=colors,
+        marker_line_width=0,
+        customdata=labels,
+        hovertemplate="%{x|%b %Y}<br>%{customdata}<extra></extra>",
+        showlegend=False,
+    ))
+
+    # Legend entries
+    for regime, color in REGIME_COLORS.items():
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode="markers",
+            marker=dict(size=12, color=color, symbol="square"),
+            name=regime,
+        ))
+
+    fig.update_layout(
+        height=100,
+        margin=dict(l=0, r=0, t=4, b=0),
+        bargap=0.0,
+        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+        xaxis=dict(showgrid=False, zeroline=False),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        legend=dict(
+            orientation="h", yanchor="top", y=-0.4,
+            xanchor="center", x=0.5, font=dict(size=10),
+        ),
+    )
+    return fig
+
+
 def run_analysis():
     graph = build_graph()
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
