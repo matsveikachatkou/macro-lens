@@ -107,13 +107,23 @@ def fetch_fred_series(fred: Fred, series_id: str, observation_date: Optional[str
         return {"error": str(e)}
 
 
-def fetch_vix() -> dict:
-    """Fetch latest VIX close from yFinance."""
+def fetch_vix(observation_date: Optional[str] = None) -> dict:
+    """Fetch VIX from yFinance. In backtest mode returns the closest prior close."""
     try:
         vix = yf.Ticker("^VIX")
-        hist = vix.history(period="5d")
+        if observation_date:
+            end_dt = datetime.strptime(observation_date, "%Y-%m-%d")
+            start_dt = end_dt - timedelta(days=10)
+            hist = vix.history(
+                start=start_dt.strftime("%Y-%m-%d"),
+                end=(end_dt + timedelta(days=1)).strftime("%Y-%m-%d"),
+            )
+        else:
+            hist = vix.history(period="5d")
+
         if hist.empty:
             return {"error": "no data"}
+
         latest = round(float(hist["Close"].iloc[-1]), 2)
         previous = round(float(hist["Close"].iloc[-2]), 2) if len(hist) >= 2 else None
         return {
