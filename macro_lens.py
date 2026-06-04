@@ -350,6 +350,70 @@ def weight_calculator(state: MacroState) -> dict:
     return {"weights": weights}
 
 
+def reporter(state: MacroState) -> dict:
+    weights = state.get("weights", {})
+    tilts = state.get("tilts", {})
+    
+    # Format weights safely
+    weights_text = "\n".join(
+        f"  {asset.replace('_', ' ').title():<22} {weight:.1%}  ({tilts.get(asset, 'Neutral')})"
+        for asset, weight in weights.items()
+    )
+    
+    macro_data = state.get("macro_data", {})
+    
+    # Helper function to safely format indicators to avoid KeyErrors
+    def safe_ind(name: str, key: str) -> str:
+        data = macro_data.get(key, {})
+        if "error" in data:
+            return f"  {name:<25} [Fetch Error/Unavailable]"
+        
+        latest = data.get('latest')
+        change = data.get('change')
+        
+        latest_str = f"{latest:>8.2f}" if latest is not None else "     N/A"
+        change_str = f"{change:>+.2f}" if change is not None else " N/A"
+        return f"  {name:<25} {latest_str}  (chg: {change_str})"
+
+    report = f"""
+╔══════════════════════════════════════════════════════╗
+║           MACRO-LENS REGIME REPORT                   ║
+║           {state['current_date']:<42} ║
+╚══════════════════════════════════════════════════════╝
+
+MACRO REGIME
+────────────
+Regime:      {state.get('regime', 'Unknown')}
+Growth:      {str(state.get('growth_direction')).title()}
+Inflation:   {str(state.get('inflation_direction')).title()}
+Confidence:  {str(state.get('regime_confidence')).title()}
+
+REGIME RATIONALE
+────────────────
+{state.get('regime_rationale', 'N/A')}
+
+KEY INDICATORS
+──────────────
+{safe_ind('Yield curve (T10Y2Y)', 't10y2y')}
+{safe_ind('HY spread (BAMLH)', 'bamlh0a0hym2')}
+{safe_ind('Breakeven inf (T10YIE)', 't10yie')}
+{safe_ind('Core PCE', 'pcepilfe')}
+{safe_ind('Industrial production', 'indpro')}
+{safe_ind('Sahm rule', 'sahmrealtime')}
+{safe_ind('VIX', 'vix')}
+
+TACTICAL ALLOCATION
+───────────────────
+{weights_text}
+
+ALLOCATION RATIONALE
+────────────────────
+{state.get('allocation_rationale', 'N/A')}
+""".strip()
+
+    return {"report": report}
+
+
 if __name__ == "__main__":
     from datetime import datetime
 
@@ -407,3 +471,8 @@ if __name__ == "__main__":
     for asset, weight in test_state["weights"].items():
         print(f"  {asset}: {weight:.1%}")
     print(f"  Total: {sum(test_state['weights'].values()):.4f}")
+
+    print("\nStep 6: reporter...")
+    report_result = reporter(test_state)
+    test_state.update(report_result)
+    print(test_state["report"])
