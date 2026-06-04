@@ -13,6 +13,9 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
 from enum import Enum
 
+from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import MemorySaver
+
 
 load_dotenv(override=True)
 
@@ -414,10 +417,44 @@ ALLOCATION RATIONALE
     return {"report": report}
 
 
-if __name__ == "__main__":
-    from datetime import datetime
+def build_graph():
+    memory = MemorySaver()
+    graph_builder = StateGraph(MacroState)
 
-    test_state: MacroState = {
+    # Add nodes
+    graph_builder.add_node("data_fetcher", data_fetcher)
+    graph_builder.add_node("regime_classifier", regime_classifier)
+    graph_builder.add_node("allocation_generator", allocation_generator)
+    graph_builder.add_node("weight_calculator", weight_calculator)
+    graph_builder.add_node("reporter", reporter)
+
+    # Linear edges
+    graph_builder.add_edge(START, "data_fetcher")
+    graph_builder.add_edge("data_fetcher", "regime_classifier")
+    graph_builder.add_edge("allocation_generator", "weight_calculator")
+    graph_builder.add_edge("weight_calculator", "reporter")
+    graph_builder.add_edge("reporter", END)
+
+    # Conditional edge: confidence router
+    graph_builder.add_conditional_edges(
+        "regime_classifier",
+        confidence_router,
+        {
+            "data_fetcher": "data_fetcher",
+            "allocation_generator": "allocation_generator",
+        }
+    )
+
+    return graph_builder.compile(checkpointer=memory)
+
+
+if __name__ == "__main__":
+    import uuid
+
+    graph = build_graph()
+    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+
+    initial_state = {
         "current_date": datetime.now().strftime("%Y-%m-%d"),
         "macro_data": None,
         "fetch_attempts": 0,
@@ -435,44 +472,6 @@ if __name__ == "__main__":
         "messages": [],
     }
 
-    print("Step 1: data fetcher...")
-    fetcher_result = data_fetcher(test_state)
-    test_state.update(fetcher_result)
-    print(f"Fetched {len(test_state['macro_data'])} indicators")
-
-    print("\nStep 2: regime classifier...")
-    regime_result = regime_classifier(test_state)
-    test_state.update(regime_result)
-
-    print(f"Growth:     {test_state['growth_direction']}")
-    print(f"Inflation:  {test_state['inflation_direction']}")
-    print(f"Regime:     {test_state['regime']}")
-    print(f"Confidence: {test_state['regime_confidence']}")
-    print(f"Rationale:  {test_state['regime_rationale']}")
-
-    print("\nStep 3: confidence router...")
-    route = confidence_router(test_state)
-    print(f"Router decision: {route}")
-
-    print("\nStep 4: allocation generator...")
-    allocation_result = allocation_generator(test_state)
-    test_state.update(allocation_result)
-
-    print(f"Tilts:")
-    for asset, tilt in test_state["tilts"].items():
-        print(f"  {asset}: {tilt}")
-    print(f"Rationale: {test_state['allocation_rationale']}")
-
-    print("\nStep 5: weight calculator...")
-    weight_result = weight_calculator(test_state)
-    test_state.update(weight_result)
-
-    print("Weights:")
-    for asset, weight in test_state["weights"].items():
-        print(f"  {asset}: {weight:.1%}")
-    print(f"  Total: {sum(test_state['weights'].values()):.4f}")
-
-    print("\nStep 6: reporter...")
-    report_result = reporter(test_state)
-    test_state.update(report_result)
-    print(test_state["report"])
+    print("Running macro-lens graph...")
+    result = graph.invoke(initial_state, config=config)
+    print(result["report"])
