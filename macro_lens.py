@@ -1,6 +1,7 @@
 import os
 from fredapi import Fred
 import yfinance as yf
+import pandas as pd
 from dotenv import load_dotenv
 
 from typing import Annotated, Optional, Dict, Any, List
@@ -356,6 +357,33 @@ TILT_MAP = {
     "Strong Overweight":  +0.10,
 }
 
+ASSET_PROXIES = {
+    "equities":         "SPY",
+    "bonds":            "TLT",
+    "inflation_linked": "TIP",  # TIPS, not LQD (corporate credit)
+    "commodities":      "GSG",
+    "gold":             "GLD",
+    "cash":             "BIL",
+}
+
+
+def _fetch_price_history(tickers: List[str], start: str, end: str) -> pd.DataFrame:
+    """Monthly adjusted close prices for all tickers in a single yfinance call."""
+    raw = yf.download(
+        tickers,
+        start=start,
+        end=(datetime.strptime(end, "%Y-%m-%d") + timedelta(days=5)).strftime("%Y-%m-%d"),
+        interval="1mo",
+        auto_adjust=True,
+        progress=False,
+    )
+    if isinstance(raw.columns, pd.MultiIndex):
+        prices = raw["Close"]
+    else:
+        prices = raw[["Close"]] if "Close" in raw.columns else raw
+
+    return prices.ffill().dropna(how="all")
+
 
 def _monthly_dates(start: str = "2010-01-01", end: Optional[str] = None) -> List[str]:
     """Month-end dates (YYYY-MM-DD) from start to end inclusive."""
@@ -378,7 +406,7 @@ def _monthly_dates(start: str = "2010-01-01", end: Optional[str] = None) -> List
             current = current.replace(month=current.month + 1)
 
     return dates
-    
+
 
 def weight_calculator(state: MacroState) -> dict:
     tilts = state.get("tilts", {})
