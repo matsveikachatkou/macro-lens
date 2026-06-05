@@ -110,6 +110,11 @@ def _build_equity_chart(equity_curve, benchmark_curve, monthly_records) -> go.Fi
         hovermode="x unified",
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#e2e8f0"),
+        xaxis=dict(showgrid=False, zeroline=False),
+        yaxis=dict(gridcolor="rgba(255,255,255,0.06)", zeroline=False),
+        xaxis2=dict(showgrid=False, zeroline=False),
+        yaxis2=dict(gridcolor="rgba(255,255,255,0.06)", zerolinecolor="#64748b"),
     )
 
     return fig
@@ -188,6 +193,7 @@ def _build_regime_timeline(monthly_records: list) -> go.Figure:
         xaxis=dict(showgrid=False, zeroline=False),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, sans-serif", color="#e2e8f0", size=11),
         legend=dict(
             orientation="h", yanchor="top", y=-0.4,
             xanchor="center", x=0.5, font=dict(size=10),
@@ -386,18 +392,16 @@ with gr.Blocks(title="macro-lens") as ui:
             metrics_box = gr.HTML()
 
             bt_run_btn.click(
+                fn=lambda: gr.update(value="⏳  Running...", interactive=False),
+                outputs=[bt_run_btn],
+                queue=False,
+            ).then(
                 fn=run_backtest_ui,
                 inputs=[start_slider, end_slider],
                 outputs=[equity_chart, regime_timeline, metrics_box],
             ).then(
-                fn=lambda: gr.Button(interactive=True),
+                fn=lambda: gr.update(value="▶  Run Backtest", interactive=True),
                 outputs=[bt_run_btn],
-            )
-
-            bt_run_btn.click(
-                fn=lambda: gr.Button(value="⏳  Running...", interactive=False),
-                outputs=[bt_run_btn],
-                queue=False,
             )
 
 
@@ -408,5 +412,8 @@ if __name__ == "__main__":
         css="""
             * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; }
             .gradio-container { max-width: 1400px !important; }
+            .gradio-plot { background: transparent !important; }
+            .gradio-plot > div { background: transparent !important; }
+            .gradio-plot iframe { background: transparent !important; }
         """
 )
