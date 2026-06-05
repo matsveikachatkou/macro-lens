@@ -1,3 +1,6 @@
+import socket
+socket.setdefaulttimeout(10)
+
 import os
 from fredapi import Fred
 import yfinance as yf
@@ -112,7 +115,7 @@ def fetch_fred_series(fred: Fred, series_id: str, observation_date: Optional[str
         return {"error": f"timeout fetching {series_id}"}
     except Exception as e:
         return {"error": str(e)}
-        
+
 
 def fetch_vix(observation_date: Optional[str] = None) -> dict:
     """Fetch VIX from yFinance. In backtest mode returns the closest prior close."""
