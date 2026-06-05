@@ -374,7 +374,7 @@ with gr.Blocks(title="macro-lens") as ui:
             with gr.Row():
                 start_slider = gr.Slider(minimum=2010, maximum=2024, value=2015, step=1, label="Start Year")
                 end_slider   = gr.Slider(minimum=2011, maximum=2026, value=2024, step=1, label="End Year")
-                bt_run_btn   = gr.Button("▶  Run Backtest", variant="primary", scale=0)
+                bt_run_btn = gr.Button("▶  Run Backtest", variant="primary", scale=0, interactive=True)
 
             gr.Markdown("### Performance")
             equity_chart = gr.Plot()
@@ -389,6 +389,15 @@ with gr.Blocks(title="macro-lens") as ui:
                 fn=run_backtest_ui,
                 inputs=[start_slider, end_slider],
                 outputs=[equity_chart, regime_timeline, metrics_box],
+            ).then(
+                fn=lambda: gr.Button(interactive=True),
+                outputs=[bt_run_btn],
+            )
+
+            bt_run_btn.click(
+                fn=lambda: gr.Button(value="⏳  Running...", interactive=False),
+                outputs=[bt_run_btn],
+                queue=False,
             )
 
 
