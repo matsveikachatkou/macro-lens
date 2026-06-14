@@ -860,12 +860,14 @@ def build_graph(
         """LLM analyst node — explains the HMM regime call and BL weights."""
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
-        regime     = state.get("regime", "Unknown")
-        confidence = state.get("regime_confidence", 0.0)
-        weights    = state.get("weights", {})
-        hmm_probs  = state.get("hmm_probabilities", {})
-        macro_data = state.get("macro_data", {})
-        obs_date   = state.get("current_date", "")
+        regime             = state.get("regime", "Unknown")
+        confidence         = state.get("regime_confidence", 0.0)
+        weights            = state.get("weights", {})
+        hmm_probs          = state.get("hmm_probabilities", {})
+        macro_data         = state.get("macro_data", {})
+        obs_date           = state.get("current_date", "")
+        original_regime    = state.get("original_hmm_regime")
+        validator_decision = state.get("regime_validator_decision", "SKIPPED")
 
         indicator_text = ""
         for key, val in macro_data.items():
@@ -881,37 +883,73 @@ def build_graph(
         )
         probs_text = ", ".join(f"{r}: {p:.1%}" for r, p in hmm_probs.items())
 
+        # Build regime context — distinguish HMM call from validator override
+        if (validator_decision == "OVERRIDE"
+                and original_regime
+                and original_regime != regime):
+            regime_context = (
+                f"The HMM originally classified the regime as "
+                f"{original_regime} with {confidence:.1%} confidence. "
+                f"The LLM validator overrode this classification to {regime} "
+                f"because PCE YoY was above the Fed's 2% target while the HMM "
+                f"called Low Inflation — a known structural limitation of the "
+                f"rolling z-score window. The final regime used for allocation is {regime}."
+            )
+            task1_instruction = (
+                f"Explain why the HMM originally called {original_regime} "
+                f"(cite the specific indicators), then explain why the validator "
+                f"correctly overrode this to {regime} (cite the PCE level vs Fed target). "
+                f"Be specific about the z-score anchoring issue."
+            )
+        elif validator_decision == "FLAG":
+            regime_context = (
+                f"The HMM classified the regime as {regime} with {confidence:.1%} "
+                f"confidence, but the validator flagged low conviction. "
+                f"Policy weights were applied as a result."
+            )
+            task1_instruction = (
+                f"Explain which indicators caused the HMM to call {regime} "
+                f"and why the validator flagged low conviction."
+            )
+        else:
+            regime_context = (
+                f"The HMM classified the regime as {regime} "
+                f"with {confidence:.1%} confidence."
+            )
+            task1_instruction = (
+                f"Explain which specific macro indicators caused the HMM to "
+                f"classify {regime} with {confidence:.1%} confidence."
+            )
+
         system_message = """You are a quantitative macro analyst writing a concise executive
-summary for a portfolio manager.
+    summary for a portfolio manager.
 
-Your role is strictly to EXPLAIN the output of a statistical model pipeline —
-you are NOT making allocation decisions. The Hidden Markov Model (HMM) has
-already classified the regime, and the Black-Litterman optimizer has already
-calculated the weights. Your job is to explain WHY, using the macro indicators.
+    Your role is strictly to EXPLAIN the output of a statistical model pipeline —
+    you are NOT making allocation decisions. The Hidden Markov Model (HMM) has
+    already classified the regime, and the Black-Litterman optimizer has already
+    calculated the weights. Your job is to explain WHY, using the macro indicators.
 
-Write in clear, institutional language. Be specific about which indicators
-drove the regime call. Do not suggest alternative allocations."""
+    Write in clear, institutional language. Be specific about which indicators
+    drove the regime call. Do not suggest alternative allocations."""
 
         user_message = f"""Date: {obs_date}
 
-HMM REGIME OUTPUT:
-  Dominant regime: {regime}
-  Confidence: {confidence:.1%}
-  Joint probabilities: {probs_text}
+    REGIME CLASSIFICATION:
+    {regime_context}
+    Joint probabilities: {probs_text}
 
-BLACK-LITTERMAN WEIGHTS:
-  {weights_text}
+    BLACK-LITTERMAN WEIGHTS:
+    {weights_text}
 
-MACRO INDICATORS:
-{indicator_text}
+    MACRO INDICATORS:
+    {indicator_text}
 
-Task 1 — Regime Rationale (2-3 sentences):
-Explain which specific macro indicators caused the HMM to classify
-{regime} with {confidence:.1%} confidence.
+    Task 1 — Regime Rationale (2-3 sentences):
+    {task1_instruction}
 
-Task 2 — Allocation Rationale (2-3 sentences):
-Explain why the Black-Litterman model tilted toward the above weights
-given this regime, referencing the Bridgewater framework."""
+    Task 2 — Allocation Rationale (2-3 sentences):
+    Explain why the Black-Litterman model tilted toward the above weights
+    given this regime, referencing the Bridgewater framework."""
 
         messages = [
             SystemMessage(content=system_message),

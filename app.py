@@ -389,10 +389,13 @@ def run_analysis_ui():
     )
 
 
-def run_backtest_ui(start_year: int, end_year: int, progress=gr.Progress()):
+def run_backtest_ui(start_year: int, end_year: int, validator_mode: str, progress=gr.Progress()):
     """Backtest callback: run the monthly backtest and render charts + metrics."""
     start_str = f"{int(start_year)}-01-01"
     end_str   = f"{int(end_year)}-12-31"
+
+    # Map UI label to internal parameter
+    validate_regime = "active" if validator_mode == "With LLM Validator" else "off"
 
     def cb(frac, msg):
         progress(frac, desc=msg)
@@ -403,7 +406,7 @@ def run_backtest_ui(start_year: int, end_year: int, progress=gr.Progress()):
             end=end_str,
             progress_callback=cb,
             use_cfnai_ma3=True,
-            validate_regime="off",   # fast baseline; change to "active" for v4 full run
+            validate_regime=validate_regime,
         )
     except Exception as e:
         empty = go.Figure()
@@ -414,7 +417,7 @@ def run_backtest_ui(start_year: int, end_year: int, progress=gr.Progress()):
         )
         return empty, empty, f"<p style='color:#ef4444'>Error: {e}</p>"
 
-    equity_fig = _build_equity_chart(
+    equity_fig   = _build_equity_chart(
         result["equity_curve"],
         result["benchmark_curve"],
         result["policy_curve"],
@@ -508,9 +511,21 @@ with gr.Blocks(title="macro-lens v4") as ui:
                     minimum=2011, maximum=2026, value=2024,
                     step=1, label="End Year"
                 )
-                bt_run_btn = gr.Button(
-                    "▶  Run Backtest", variant="primary", scale=0, interactive=True
-                )
+
+            validator_toggle = gr.Radio(
+                choices=["Structural Fixes Only", "With LLM Validator"],
+                value="Structural Fixes Only",
+                label="Regime Validator",
+                info=(
+                    "'Structural Fixes Only' — 120m inflation window + CFNAI-MA3 baseline.  "
+                    "'With LLM Validator' — adds gated PCE-anchor override "
+                    "(results cached, no extra API calls)."
+                ),
+            )
+
+            bt_run_btn = gr.Button(
+                "▶  Run Backtest", variant="primary", scale=0, interactive=True
+            )
 
             gr.Markdown("### Performance")
             equity_chart = gr.Plot()
@@ -527,7 +542,7 @@ with gr.Blocks(title="macro-lens v4") as ui:
                 queue=False,
             ).then(
                 fn=run_backtest_ui,
-                inputs=[start_slider, end_slider],
+                inputs=[start_slider, end_slider, validator_toggle],
                 outputs=[equity_chart, regime_timeline, metrics_box],
             ).then(
                 fn=lambda: gr.update(value="▶  Run Backtest", interactive=True),

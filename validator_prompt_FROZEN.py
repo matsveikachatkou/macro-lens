@@ -13,7 +13,7 @@ Prompt version: v4-validator-1.0
 Cache key:      hash(blinded_input_dict) — NOT (date, regime). Blinding is the point.
 """
 
-PROMPT_VERSION = "v4-validator-1.0-retest"
+PROMPT_VERSION = "v4-validator-1.0-gate2only"
 
 # ---------------------------------------------------------------------------
 # GATE THRESHOLDS
@@ -55,25 +55,27 @@ def should_invoke_validator(
     Returns (should_invoke, list_of_gates_fired).
     If no gate fires, the validator is skipped entirely.
     The gate logic is deterministic — the LLM has no say in whether it's invoked.
+
+    v4-validator-1.0-gate2only: Gate 1 (confidence threshold) removed.
+    Rationale: Gate 1 produced two economically unjustified overrides in the
+    2015 backtest window — the LLM free-associated regimes without a strong
+    anchor when only confidence was low. Gates 2 and 3 have explicit
+    economic anchors (Fed target, crisis VIX) that constrain the LLM's
+    reasoning to the specific failure modes the validator was designed to catch.
     """
     gates_fired = []
 
-    # Gate 1: HMM confidence is genuinely ambiguous
-    if hmm_confidence < GATE_CONFIDENCE_THRESHOLD:
-        gates_fired.append(
-            f"GATE_1_CONFIDENCE: HMM confidence {hmm_confidence:.2f} "
-            f"< threshold {GATE_CONFIDENCE_THRESHOLD}"
-        )
-
-    # Gate 2: PCE is above Fed target but HMM calls Low Inflation
-    # This is the specific structural failure mode identified in v3.
+    # Gate 2: PCE is above Fed target but HMM calls Low Inflation.
+    # This is the specific structural failure mode identified in v3 —
+    # a rolling z-score window anchored to a high-inflation era makes
+    # current above-target PCE look low by comparison.
     if (pcepilfe_level > GATE_PCE_THRESHOLD / 100) and (hmm_inflation_call == "Low Inflation"):
         gates_fired.append(
             f"GATE_2_PCE_ANCHOR: PCE YoY {pcepilfe_level*100:.2f}% "
             f"> {GATE_PCE_THRESHOLD}% but HMM calls Low Inflation"
         )
 
-    # Gate 3: VIX signals crisis but HMM calls High Growth
+    # Gate 3: VIX signals crisis but HMM calls High Growth.
     # Catches liquidity-crisis episodes where growth indicators lag by 1-2 months.
     if (vix_level > GATE_VIX_THRESHOLD) and (hmm_growth_call == "High Growth"):
         gates_fired.append(
