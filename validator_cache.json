@@ -416,5 +416,309 @@
       "vix": 0.0,
       "hmm_confidence": 0.9409
     }
+  },
+  "068dac7e89e460ee": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 3.29% is significantly above the Fed's target of 2.0%, indicating high inflation. Additionally, the CFNAI z-score of +1.476 suggests above-trend growth, but the high inflation reading takes precedence in this context.",
+    "primary_contradiction": "The PCE YoY level indicates high inflation, contradicting the HMM's classification of Low Inflation.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2026-06-14",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 3.29% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 3.29,
+      "vix": 17.7,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "5f1f18cb7b811b88": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 2.79% indicates inflation above the Fed's target of 2.0%, which is inconsistent with a Low Inflation regime. Additionally, the CFNAI z-score of -0.266 suggests below-trend growth, supporting a Low Growth classification.",
+    "primary_contradiction": "PCE YoY at 2.79% indicates high inflation, contradicting the HMM's Low Inflation classification.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2025-01-31",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 2.79% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 2.79,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "1b9bad12ad6199c7": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 2.65% is above the Fed's target of 2.0% and indicates high inflation. Additionally, the CFNAI z-score of +0.779 suggests above-trend growth, but the inflation reading is more significant in this context, leading to a classification of Low Growth / High Inflation.",
+    "primary_contradiction": "PCE YoY at 2.65% indicates high inflation, contradicting the HMM's classification of Low Inflation.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2025-02-28",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 2.65% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 2.65,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "f9ee9a71cd1a7405": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 2.79% is above the Fed's target of 2.0% and indicates high inflation. Additionally, the VIX at 0.0 and HY spread at 0.00% suggest low credit stress, but the inflation reading is substantial enough to indicate a shift to a Low Growth / High Inflation regime.",
+    "primary_contradiction": "PCE YoY at 2.79% indicates high inflation, contradicting the HMM's classification of Low Growth / Low Inflation.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2025-03-31",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 2.79% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 2.79,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "ef930b0880a5c198": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 2.65% is above the Fed's target of 2.0% and indicates inflationary pressure, contradicting the Low Inflation classification. Additionally, the VIX at 0.0 and HY spread at 0.00% suggest low credit stress, but the inflation reading is more significant in this context.",
+    "primary_contradiction": "PCE YoY at 2.65% indicates High Inflation, while HMM indicates Low Inflation.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2025-04-30",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 2.65% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 2.65,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "a22cd40a0265be76": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 2.52% indicates inflation above the Fed's target of 2.0%, suggesting a high inflation environment. Additionally, the VIX at 0.0 and HY spread at 0.00% indicate low credit stress, but the inflation reading contradicts the Low Inflation classification of the HMM.",
+    "primary_contradiction": "PCE YoY at 2.52% indicates high inflation, contradicting the HMM's Low Inflation classification.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2025-05-31",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 2.52% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 2.52,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "f56c4fd84d8225e7": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 2.68% is above the Fed's target of 2.0% and indicates inflationary pressure, contradicting the Low Inflation classification. Additionally, the CFNAI z-score of -0.280 suggests below-trend growth, supporting the Low Growth classification but not aligning with Low Inflation.",
+    "primary_contradiction": "PCE YoY at 2.68% indicates High Inflation, contradicting the HMM's Low Inflation classification.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2025-06-30",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 2.68% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 2.68,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "172e7bcad56b762e": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 2.79% is above the 2.5% threshold, indicating inflation is above target. Additionally, the CFNAI z-score of -0.795 suggests below-trend growth, which aligns with a Low Growth / High Inflation regime.",
+    "primary_contradiction": "PCE YoY level indicates inflation above target, contradicting the HMM's Low Inflation classification.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2025-07-31",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 2.79% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 2.79,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "ab3f17d1fe0cd6fa": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 2.88% is above the 2.5% threshold, indicating inflation above target, which contradicts the Low Growth / Low Inflation regime. Additionally, the CFNAI z-score of -0.428 suggests below-trend growth, supporting a Low Growth classification but not a Low Inflation one.",
+    "primary_contradiction": "PCE YoY at 2.88% indicates High Inflation, contradicting the HMM's Low Inflation classification.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2025-08-31",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 2.88% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 2.88,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "09de21c4e85ac402": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 2.91% is above the Fed's target of 2.0% and indicates high inflation. Additionally, the CFNAI z-score of -0.328 suggests below-trend growth, supporting a classification of Low Growth / High Inflation.",
+    "primary_contradiction": "PCE YoY level indicates high inflation, contradicting the HMM's Low Growth / Low Inflation classification.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2025-09-30",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 2.91% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 2.91,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "2232b0de827ceb62": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 2.91% is above the Fed's target of 2.0% and indicates high inflation, contradicting the HMM's classification of Low Inflation. Additionally, the CFNAI z-score of -0.328 suggests below-trend growth, supporting a Low Growth classification.",
+    "primary_contradiction": "PCE YoY at 2.91% indicates high inflation, while HMM classifies as Low Inflation.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2025-10-31",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 2.91% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 2.91,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "2b5a5744b4bd01ee": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 2.79% is above the 2.5% threshold, indicating high inflation, which contradicts the HMM classification of Low Growth / Low Inflation. Additionally, the CFNAI z-score of -0.656 suggests below-trend growth, supporting a Low Growth classification.",
+    "primary_contradiction": "PCE YoY at 2.79% indicates high inflation, inconsistent with Low Inflation regime.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2026-01-31",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 2.79% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 2.79,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "215d1dbc09963c21": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 3.00% is above the Fed's target of 2.0% and indicates high inflation. Additionally, the VIX at 0.0 and HY spread at 0.00% suggest low credit stress, but the high PCE level contradicts the Low Inflation classification.",
+    "primary_contradiction": "PCE YoY at 3.00% indicates high inflation, contradicting the HMM's Low Inflation classification.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2026-02-28",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 3.00% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 3.0,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "a7bc827ab13bf264": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 3.06% is significantly above the Fed's target of 2.0%, indicating high inflation. Additionally, the VIX at 0.0 and HY spread at 0.00% suggest low credit stress, but the high inflation reading contradicts the HMM's classification of Low Growth / Low Inflation.",
+    "primary_contradiction": "PCE YoY at 3.06% indicates high inflation, contradicting the HMM's Low Inflation classification.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2026-03-31",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 3.06% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 3.06,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "73367a1b5676983f": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 3.20% is significantly above the Fed's target of 2.0%, indicating high inflation. Additionally, the CFNAI z-score of +1.160 suggests above-trend growth, but the high inflation reading takes precedence in this context.",
+    "primary_contradiction": "The PCE YoY level indicates high inflation, contradicting the HMM's classification of Low Inflation.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2026-04-30",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 3.20% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 3.2,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
+  },
+  "6a6107c51658763c": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 3.29% is significantly above the Fed's target of 2.0%, indicating high inflation. Additionally, the CFNAI z-score of +1.476 suggests above-trend growth, but the high inflation reading takes precedence in this context.",
+    "primary_contradiction": "The PCE YoY level indicates high inflation, contradicting the HMM's classification of Low Growth / Low Inflation.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2026-05-31",
+    "prompt_version": "v4-validator-1.0-gate2only",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 3.29% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 3.29,
+      "vix": 0.0,
+      "hmm_confidence": 0.9409
+    }
   }
 }
