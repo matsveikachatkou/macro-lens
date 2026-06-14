@@ -473,5 +473,24 @@
       "vix": 0.0,
       "hmm_confidence": 0.9409
     }
+  },
+  "068dac7e89e460ee": {
+    "decision": "OVERRIDE",
+    "replacement_regime": "Low Growth / High Inflation",
+    "rationale": "PCE YoY at 3.29% is significantly above the Fed's target of 2.0%, indicating high inflation. Additionally, the CFNAI z-score of +1.476 suggests above-trend growth, but the high inflation reading takes precedence in this context.",
+    "primary_contradiction": "PCE YoY at 3.29% contradicts the HMM's classification of Low Inflation.",
+    "confidence_in_decision": "HIGH",
+    "parse_note": null,
+    "contamination_markers": [],
+    "observation_date": "2026-06-14",
+    "prompt_version": "v4-validator-1.0-retest",
+    "gates_fired": [
+      "GATE_2_PCE_ANCHOR: PCE YoY 3.29% > 2.5% but HMM calls Low Inflation"
+    ],
+    "blinded_input_summary": {
+      "pce_level": 3.29,
+      "vix": 17.7,
+      "hmm_confidence": 0.9409
+    }
   }
 }

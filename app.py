@@ -1,13 +1,21 @@
 """
-app.py — Gradio dashboard for macro-lens v3.
+app.py — Gradio dashboard for macro-lens v4.
 
 Two tabs:
-  Live Analysis: runs the full pipeline (FRED fetch → HMM → BL → LLM narrative)
-                 and displays the regime call, indicator readings, joint HMM
-                 probabilities, BL allocation, and LLM rationale.
+  Live Analysis: runs the full pipeline (FRED fetch → HMM → [validator] → BL → LLM narrative)
+                 and displays the regime call, validator decision, indicator readings,
+                 joint HMM probabilities, BL allocation, and LLM rationale.
   Backtest:      runs the monthly point-in-time backtest over a user-selected
                  date range and renders the equity curve, regime timeline, and
                  summary metrics vs 60/40 and the static policy mix.
+
+v4 changes vs v3:
+  - run_analysis() called with validate_regime="active" so validator overrides
+    propagate to BL weights in live mode
+  - Core PCE displayed as YoY % (not raw index level)
+  - Validator decision row added to live analysis UI
+  - Version string updated to v4 throughout
+  - Backtest metrics table adds Policy Mix column alongside 60/40
 """
 
 import gradio as gr
@@ -17,10 +25,15 @@ import uuid
 
 from macro_lens import run_analysis, run_backtest, ASSET_PROXIES
 from black_litterman import MARKET_WEIGHTS, ASSETS as BL_ASSETS
+from features import get_pcepilfe_level
 
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from fredapi import Fred
+import os
+from dotenv import load_dotenv
 
+load_dotenv(override=True)
 
 # Bridgewater 2x2 regime colour scheme — consistent across all charts
 REGIME_COLORS = {
@@ -31,28 +44,39 @@ REGIME_COLORS = {
 }
 
 
+# ---------------------------------------------------------------------------
 # Chart builders
+# ---------------------------------------------------------------------------
 
-def _build_equity_chart(equity_curve, benchmark_curve, monthly_records) -> go.Figure:
+def _build_equity_chart(equity_curve, benchmark_curve, policy_curve, monthly_records) -> go.Figure:
     """
     Two-panel chart:
-      Top: cumulative performance (base 100) with regime background shading
-      Bottom: monthly active return vs 60/40 benchmark
+      Top: cumulative performance (base 100) — Macro-Lens, Policy Mix, 60/40
+           with regime background shading
+      Bottom: monthly active return vs policy mix (primary benchmark)
     """
     fig = make_subplots(
         rows=2, cols=1,
         row_heights=[0.75, 0.25],
         shared_xaxes=True,
         vertical_spacing=0.04,
-        subplot_titles=("Cumulative Performance (Base 100)", "Active Return vs 60/40"),
+        subplot_titles=("Cumulative Performance (Base 100)", "Active Return vs Policy Mix"),
     )
 
     fig.add_trace(
         go.Scatter(
             x=equity_curve.index, y=equity_curve.values,
-            name="Macro-Lens v3",
+            name="Macro-Lens v4",
             line=dict(color="#6366f1", width=2.5),
             hovertemplate="%{x|%b %Y}<br>Portfolio: %{y:.1f}<extra></extra>",
+        ), row=1, col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=policy_curve.index, y=policy_curve.values,
+            name="Policy Mix (40/30/10/8/7/5)",
+            line=dict(color="#f59e0b", width=1.5, dash="dash"),
+            hovertemplate="%{x|%b %Y}<br>Policy: %{y:.1f}<extra></extra>",
         ), row=1, col=1,
     )
     fig.add_trace(
@@ -88,18 +112,18 @@ def _build_equity_chart(equity_curve, benchmark_curve, monthly_records) -> go.Fi
         if prev_regime and band_start is not None and len(equity_curve) > 0:
             add_band(band_start, equity_curve.index[-1], prev_regime)
 
-    # Active return bars
-    if len(equity_curve) > 0 and len(benchmark_curve) > 0:
-        common_idx = equity_curve.index.intersection(benchmark_curve.index)
+    # Active return vs policy mix
+    if len(equity_curve) > 0 and len(policy_curve) > 0:
+        common_idx = equity_curve.index.intersection(policy_curve.index)
         active = (
             equity_curve.loc[common_idx].pct_change().dropna()
-            - benchmark_curve.loc[common_idx].pct_change().dropna()
+            - policy_curve.loc[common_idx].pct_change().dropna()
         ) * 100
 
         fig.add_trace(
             go.Bar(
                 x=active.index, y=active.values,
-                name="Active Return",
+                name="Active vs Policy",
                 marker_color=["#22c55e" if v >= 0 else "#ef4444" for v in active.values],
                 opacity=0.7,
                 hovertemplate="%{x|%b %Y}<br>Active: %{y:.2f}%<extra></extra>",
@@ -141,7 +165,6 @@ def _build_regime_timeline(monthly_records: list) -> go.Figure:
         showlegend=False,
     ))
 
-    # Legend entries (invisible scatter traces for colour key)
     for regime, color in REGIME_COLORS.items():
         fig.add_trace(go.Scatter(
             x=[None], y=[None], mode="markers",
@@ -167,7 +190,7 @@ def _build_regime_timeline(monthly_records: list) -> go.Figure:
 
 
 def _metrics_html(metrics: dict) -> str:
-    """Render the summary metrics table as an HTML string."""
+    """Render the summary metrics table as an HTML string — three columns."""
     def fmt_pct(v):
         return f"{v*100:+.1f}%" if v is not None else "N/A"
 
@@ -175,11 +198,23 @@ def _metrics_html(metrics: dict) -> str:
         return f"{v:.2f}" if v is not None and v == v else "N/A"
 
     rows = [
-        ("Total Return",  fmt_pct(metrics.get("total_return_portfolio")),  fmt_pct(metrics.get("total_return_benchmark"))),
-        ("Ann. Return",   fmt_pct(metrics.get("ann_return_portfolio")),    fmt_pct(metrics.get("ann_return_benchmark"))),
-        ("Sharpe Ratio",  fmt_f(metrics.get("sharpe_portfolio")),          fmt_f(metrics.get("sharpe_benchmark"))),
-        ("Max Drawdown",  fmt_pct(metrics.get("max_drawdown_portfolio")),  fmt_pct(metrics.get("max_drawdown_benchmark"))),
-        ("Months",        str(metrics.get("n_months", "N/A")),             ""),
+        ("Total Return",
+            fmt_pct(metrics.get("total_return_portfolio")),
+            fmt_pct(metrics.get("total_return_policy")),
+            fmt_pct(metrics.get("total_return_benchmark"))),
+        ("Ann. Return",
+            fmt_pct(metrics.get("ann_return_portfolio")),
+            fmt_pct(metrics.get("ann_return_policy")),
+            fmt_pct(metrics.get("ann_return_benchmark"))),
+        ("Sharpe Ratio",
+            fmt_f(metrics.get("sharpe_portfolio")),
+            fmt_f(metrics.get("sharpe_policy")),
+            fmt_f(metrics.get("sharpe_benchmark"))),
+        ("Max Drawdown",
+            fmt_pct(metrics.get("max_drawdown_portfolio")),
+            fmt_pct(metrics.get("max_drawdown_policy")),
+            fmt_pct(metrics.get("max_drawdown_benchmark"))),
+        ("Months", str(metrics.get("n_months", "N/A")), "", ""),
     ]
 
     html = """
@@ -189,51 +224,95 @@ def _metrics_html(metrics: dict) -> str:
                font-weight:500; border-bottom:1px solid #334155; }
       .mt td { padding:8px 12px; border-bottom:1px solid #1e293b; }
       .mt tr:last-child td { border-bottom:none; }
-      .port { color:#6366f1; font-weight:600; }
+      .port  { color:#6366f1; font-weight:600; }
+      .policy { color:#f59e0b; font-weight:600; }
       .bench { color:#94a3b8; }
     </style>
     <table class="mt">
       <thead><tr>
-        <th>Metric</th><th>Macro-Lens v3</th><th>60/40</th>
+        <th>Metric</th>
+        <th>Macro-Lens v4</th>
+        <th>Policy Mix</th>
+        <th>60/40</th>
       </tr></thead><tbody>
     """
-    for label, port_val, bench_val in rows:
+    for label, port_val, policy_val, bench_val in rows:
         html += (
             f"<tr><td style='color:#cbd5e1'>{label}</td>"
             f"<td class='port'>{port_val}</td>"
+            f"<td class='policy'>{policy_val}</td>"
             f"<td class='bench'>{bench_val}</td></tr>"
         )
     html += "</tbody></table>"
     return html
 
 
+# ---------------------------------------------------------------------------
 # UI callback functions
+# ---------------------------------------------------------------------------
 
 def run_analysis_ui():
-    """Live analysis callback: invoke the full pipeline and format outputs."""
-    result = run_analysis()
+    """
+    Live analysis callback: invoke the full pipeline and format outputs.
 
-    # Regime summary header
-    regime     = result.get("regime", "Unknown")
-    growth     = result.get("growth_direction", "unknown").title()
-    inflation  = result.get("inflation_direction", "unknown").title()
-    confidence = result.get("regime_confidence", 0.0)
-    date       = result.get("current_date", "")
+    v4: validate_regime="active" so validator OVERRIDEs propagate to BL weights.
+    """
+    result = run_analysis(validate_regime="active")
 
-    regime_summary = (
-        f"**{regime}**\n\n"
-        f"Growth: {growth}  |  Inflation: {inflation}  |  "
-        f"Confidence: {confidence:.1%}  |  As of: {date}"
-    )
+    # Regime summary — show override if active
+    regime            = result.get("regime", "Unknown")
+    original_regime   = result.get("original_hmm_regime")
+    growth            = result.get("growth_direction", "unknown").title()
+    inflation         = result.get("inflation_direction", "unknown").title()
+    confidence        = result.get("regime_confidence", 0.0)
+    date              = result.get("current_date", "")
+    validator_decision = result.get("regime_validator_decision", "SKIPPED")
+    validator_rationale = result.get("regime_validator_rationale", "")
 
-    # Indicators table — mirrors PRIMARY_SERIES in macro_lens.py
+    # Show override context if validator changed the regime
+    if (validator_decision == "OVERRIDE"
+            and original_regime
+            and original_regime != regime):
+        regime_line = (
+            f"**{regime}** *(overridden from {original_regime})*\n\n"
+            f"Growth: {growth}  |  Inflation: {inflation}  |  "
+            f"Confidence: {confidence:.1%}  |  As of: {date}\n\n"
+            f"🔍 **Validator [{validator_decision}]:** {validator_rationale}"
+        )
+    elif validator_decision == "FLAG":
+        regime_line = (
+            f"**{regime}** *(validator flagged — policy weights applied)*\n\n"
+            f"Growth: {growth}  |  Inflation: {inflation}  |  "
+            f"Confidence: {confidence:.1%}  |  As of: {date}\n\n"
+            f"🔍 **Validator [{validator_decision}]:** {validator_rationale}"
+        )
+    elif validator_decision not in ("SKIPPED", None):
+        regime_line = (
+            f"**{regime}**\n\n"
+            f"Growth: {growth}  |  Inflation: {inflation}  |  "
+            f"Confidence: {confidence:.1%}  |  As of: {date}\n\n"
+            f"✅ **Validator [CONFIRM]:** {validator_rationale}"
+        )
+    else:
+        regime_line = (
+            f"**{regime}**\n\n"
+            f"Growth: {growth}  |  Inflation: {inflation}  |  "
+            f"Confidence: {confidence:.1%}  |  As of: {date}"
+        )
+
+    # Indicators table
+    # PCE: fetch YoY % separately since FRED series is an index level
     macro_data = result.get("macro_data", {})
+    fred = Fred(api_key=os.getenv("FRED_API_KEY"))
+    pce_yoy = get_pcepilfe_level(fred, datetime.now().strftime("%Y-%m-%d"))
+    pce_yoy_str = f"{pce_yoy:.2%}" if pce_yoy == pce_yoy else "N/A"
+
     indicator_labels = {
         "t10y2y":       "Yield Curve (T10Y2Y)",
         "bamlh0a0hym2": "HY Credit Spread",
         "t10yie":       "Breakeven Inflation",
-        "pcepilfe":     "Core PCE",
-        "cfnai":        "CFNAI (Activity Index)",   # primary growth HMM feature
+        "pcepilfe":     "Core PCE (YoY %)",
+        "cfnai":        "CFNAI (Activity Index)",
         "sahmrealtime": "Sahm Rule",
         "stlfsi4":      "Financial Stress Index",
         "vix":          "VIX",
@@ -244,17 +323,21 @@ def run_analysis_ui():
         d = macro_data.get(key, {})
         if "error" in d:
             indicator_rows.append([label, "N/A", "N/A", "N/A"])
+            continue
+
+        latest   = d.get("latest")
+        change   = d.get("change")
+        date_str = d.get("date", "")
+
+        # Override PCE display: show YoY % instead of index level
+        if key == "pcepilfe":
+            latest_str = pce_yoy_str
+            change_str = "N/A"  # MoM change in YoY % not meaningful to display
         else:
-            latest     = d.get("latest")
-            change     = d.get("change")
-            date_str   = d.get("date", "")
+            latest_str = f"{latest:.4f}" if latest is not None else "N/A"
             change_str = f"{change:+.4f}" if change is not None else "N/A"
-            indicator_rows.append([
-                label,
-                f"{latest:.4f}" if latest is not None else "N/A",
-                change_str,
-                date_str,
-            ])
+
+        indicator_rows.append([label, latest_str, change_str, date_str])
 
     indicators_df = pd.DataFrame(
         indicator_rows,
@@ -274,13 +357,13 @@ def run_analysis_ui():
         prob_rows, columns=["Regime", "Probability", ""]
     ) if prob_rows else pd.DataFrame(columns=["Regime", "Probability", ""])
 
-    # BL allocation table: Weight / Market Weight / Active Tilt
+    # BL allocation table
     weights = result.get("weights", {})
     allocation_rows = []
     for asset in BL_ASSETS:
-        weight    = weights.get(asset, 0.0)
-        mkt_w     = mkt_weights_dict.get(asset, 0.0)
-        delta     = weight - mkt_w
+        weight = weights.get(asset, 0.0)
+        mkt_w  = mkt_weights_dict.get(asset, 0.0)
+        delta  = weight - mkt_w
         allocation_rows.append([
             asset.replace("_", " ").title(),
             f"{weight:.1%}",
@@ -297,7 +380,7 @@ def run_analysis_ui():
     allocation_rationale = result.get("allocation_rationale", "")
 
     return (
-        regime_summary,
+        regime_line,
         indicators_df,
         hmm_df,
         allocation_df,
@@ -315,7 +398,13 @@ def run_backtest_ui(start_year: int, end_year: int, progress=gr.Progress()):
         progress(frac, desc=msg)
 
     try:
-        result = run_backtest(start=start_str, end=end_str, progress_callback=cb)
+        result = run_backtest(
+            start=start_str,
+            end=end_str,
+            progress_callback=cb,
+            use_cfnai_ma3=True,
+            validate_regime="off",   # fast baseline; change to "active" for v4 full run
+        )
     except Exception as e:
         empty = go.Figure()
         empty.add_annotation(
@@ -325,8 +414,11 @@ def run_backtest_ui(start_year: int, end_year: int, progress=gr.Progress()):
         )
         return empty, empty, f"<p style='color:#ef4444'>Error: {e}</p>"
 
-    equity_fig   = _build_equity_chart(
-        result["equity_curve"], result["benchmark_curve"], result["monthly_records"]
+    equity_fig = _build_equity_chart(
+        result["equity_curve"],
+        result["benchmark_curve"],
+        result["policy_curve"],
+        result["monthly_records"],
     )
     timeline_fig = _build_regime_timeline(result["monthly_records"])
     metrics_str  = _metrics_html(result["metrics"])
@@ -334,24 +426,27 @@ def run_backtest_ui(start_year: int, end_year: int, progress=gr.Progress()):
     return equity_fig, timeline_fig, metrics_str
 
 
+# ---------------------------------------------------------------------------
 # Gradio layout
+# ---------------------------------------------------------------------------
 
-with gr.Blocks(title="macro-lens v3") as ui:
+with gr.Blocks(title="macro-lens v4") as ui:
 
-    gr.Markdown("# macro-lens v3")
+    gr.Markdown("# macro-lens v4")
     gr.Markdown(
         "**Macro Regime Detection · Tactical Asset Allocation · Backtest Engine**  \n"
         "HMM Regime Classification · Black-Litterman Portfolio Construction · "
-        "FRED (ALFRED point-in-time vintages) · yFinance · GPT-4o-mini (Narrative) · LangGraph"
+        "FRED (ALFRED point-in-time vintages) · yFinance · GPT-4o-mini · LangGraph  \n"
+        "*v4: 120m inflation window · CFNAI-MA3 · Gated LLM Regime Validator*"
     )
 
     with gr.Tabs():
 
-        # ----------------------------------------------------------
+        # --------------------------------------------------------------
         with gr.Tab("Live Analysis"):
             run_btn = gr.Button("▶  Run Analysis", variant="primary", scale=0)
 
-            gr.Markdown("### Regime  `[HMM]`")
+            gr.Markdown("### Regime  `[HMM + Validator]`")
             regime_box = gr.Markdown()
 
             with gr.Row():
@@ -395,20 +490,23 @@ with gr.Blocks(title="macro-lens v3") as ui:
                 ],
             )
 
-        # ----------------------------------------------------------
+        # --------------------------------------------------------------
         with gr.Tab("Backtest"):
             gr.Markdown(
                 "Runs the HMM + Black-Litterman pipeline monthly using "
                 "**point-in-time FRED vintages**. "
-                "Weights at month-end *t* are applied to ETF returns in month *t+1*."
+                "Weights at month-end *t* are applied to ETF returns in month *t+1*.  \n"
+                "Benchmark: Policy Mix (40/30/10/8/7/5) · 60/40 (SPY/TLT)"
             )
 
             with gr.Row():
                 start_slider = gr.Slider(
-                    minimum=2010, maximum=2024, value=2015, step=1, label="Start Year"
+                    minimum=2010, maximum=2024, value=2015,
+                    step=1, label="Start Year"
                 )
                 end_slider = gr.Slider(
-                    minimum=2011, maximum=2026, value=2024, step=1, label="End Year"
+                    minimum=2011, maximum=2026, value=2024,
+                    step=1, label="End Year"
                 )
                 bt_run_btn = gr.Button(
                     "▶  Run Backtest", variant="primary", scale=0, interactive=True
