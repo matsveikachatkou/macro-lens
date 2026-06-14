@@ -11,3 +11,4 @@ wheels/
 .env
 .venv
 __pycache__
+zscore_cache.json

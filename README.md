@@ -2,143 +2,228 @@
 
 **Macro Regime Detection · Tactical Asset Allocation · Backtest Engine**
 
-macro-lens is a stateful AI agent built with LangGraph that monitors macroeconomic conditions, classifies the current market regime, and generates a tactical asset allocation — mimicking the top-down analytical process used by institutional multi-asset portfolio managers.
+macro-lens is a hybrid quant/AI system built with LangGraph that monitors macroeconomic conditions, classifies the current market regime using Hidden Markov Models, and generates a tactical asset allocation via Black-Litterman portfolio construction — mimicking the top-down analytical process used by institutional multi-asset portfolio managers.
 
 ---
 
 ## What it does
 
-1. **Fetches** 8 live macroeconomic indicators from FRED (Federal Reserve Economic Data) plus VIX from yFinance — all free, no paid data dependencies
-2. **Classifies** the current macro regime using the Bridgewater 2×2 framework (Growth rising/falling × Inflation rising/falling)
-3. **Routes** based on confidence — if the regime signal is ambiguous, the graph loops back to fetch additional indicators before committing
-4. **Generates** tactical tilts per asset class (5-point scale: Strong Underweight → Strong Overweight) using GPT-4o-mini
-5. **Calculates** final portfolio weights deterministically in Python — normalised, long-only, sums to 100%
-6. **Reports** via a Gradio dashboard with live analysis and backtest tabs
+1. **Fetches** live macroeconomic indicators from FRED (Federal Reserve Economic Data) plus VIX from yFinance — all free, no paid data dependencies
+2. **Classifies** the current macro regime using two independent 2-state Gaussian HMMs (one for growth, one for inflation), combined into the Bridgewater 2×2 framework (High/Low Growth × High/Low Inflation)
+3. **Constructs** a tactical portfolio via Black-Litterman: policy-anchored implied returns + Bridgewater heuristic views + constrained mean-variance optimisation with ±15% TAA bands
+4. **Explains** the quant model output via GPT-4o-mini — the LLM writes the rationale, the HMM and BL layer make all allocation decisions
+5. **Reports** via a Gradio dashboard with live analysis and backtest tabs
 
 ---
 
 ## Architecture
 
-The core of macro-lens is a stateful LangGraph graph with a confidence-gated feedback loop — the key feature that differentiates it from linear pipeline frameworks.
+### v3 — Hybrid Quant/AI Pipeline
 
 ```
 START
-  └─► data_fetcher        (Python — FRED + yFinance)
-        └─► regime_classifier   (LLM — Bridgewater 2×2, Pydantic output)
-              └─► confidence_router   (Python — conditional edge)
-                    ├─► [low confidence, retries < 2] ──► data_fetcher
-                    └─► [high confidence or retry cap] ──► allocation_generator
-                                                               └─► weight_calculator  (Python)
-                                                                     └─► reporter
-                                                                           └─► END
+  └─► data_fetcher           (Python — FRED + yFinance, live mode only)
+        └─► quant_regime_node    (Python — RegimeHMMEngine)
+              └─► quant_allocation_node  (Python — Black-Litterman)
+                    └─► weight_calculator   (Python — normalisation safety net)
+                          └─► narrative_generator  (LLM — explanation only, live mode only)
+                                └─► reporter
+                                      └─► END
 ```
 
 **Key design decisions:**
 
-- The confidence router is pure Python — no LLM involved in routing, keeping token costs down and preventing hallucinated transitions
-- LLM outputs *tilts* (qualitative), Python enforces the *math* (weights) — strict separation of conviction from constraint
-- `RegimeType` and tilt levels are Pydantic enums — the LLM cannot hallucinate an off-schema value
-- `temperature=0` on all LLM nodes for maximum determinism
-- `previous_regime` in state enables hysteresis — conservative about declaring regime changes
+- **HMM over LLM for regime classification** — two independent 2-state GaussianHMMs (hmmlearn) fit on point-in-time FRED data via ALFRED vintage API. The LLM is strictly explanatory and cannot influence the regime call or allocation weights.
+- **Black-Litterman over tilt maps** — BL generates posterior expected returns from a policy-anchored prior and Bridgewater heuristic views. Constrained SLSQP optimisation (scipy) with policy-relative bounds [±15%] replaces the unconstrained MV step that would otherwise corner into single assets.
+- **Two views per regime** — each Bridgewater quadrant expresses two relative views, ensuring both the growth and inflation dimensions differentiate the final allocation (HG/HI vs HG/LI produce meaningfully different commodity exposures).
+- **Confidence-scaled effective_Q** — view magnitude scales by HMM confidence, preventing optimizer cornering when prior implied returns are near zero (documented deviation from canonical BL).
+- **Linear blend** — `w_final = conf × w_bl + (1-conf) × policy_weights` provides smooth confidence-to-conviction scaling.
+- **Independence assumption** — growth and inflation HMMs are fit separately; joint regime probability = product of marginals. Deliberate bias-variance tradeoff following Kritzman, Page & Turkington (2012, FAJ).
+
+### v2 — LLM-only pipeline (historical)
+
+v2 used GPT-4o-mini for both regime classification and allocation generation, with a confidence-gated feedback loop. Replaced in v3 by the HMM + BL layer. The LLM now explains quant model outputs rather than producing them.
 
 ---
 
-## Macro indicators
+## HMM Feature Set
 
-| Series | Description | Axis |
-|--------|-------------|------|
-| T10Y2Y | 10Y–2Y Treasury yield spread | Growth proxy |
-| INDPRO | Industrial Production Index | Growth |
-| SAHMREALTIME | Sahm Rule Recession Indicator | Growth |
-| BAMLH0A0HYM2 | ICE BofA HY Credit Spread | Risk / Growth |
-| STLFSI4 | St. Louis Fed Financial Stress Index | Risk |
-| PCEPILFE | Core PCE Price Index | Inflation |
-| T10YIE | 10Y Breakeven Inflation Rate | Inflation |
-| UNRATE | Unemployment Rate | Growth |
-| ^VIX | CBOE Volatility Index | Risk sentiment |
+| Series | Transform | Window | Role |
+|--------|-----------|--------|------|
+| CFNAI | level | 36m | Primary growth feature — Chicago Fed composite of 85 monthly indicators across production, employment, consumption, and orders. Replaces INDPRO (too narrow: goods sector only, ~11% of GDP). |
+| UNRATE | diff | 36m | Secondary growth feature — labour market confirmation signal |
+| PCEPILFE | yoy | 60m | Primary inflation feature — Fed's preferred realized gauge |
+| CPIAUCSL | yoy | 60m | Secondary inflation feature — realized CPI. Replaces T10YIE (breakeven inflation embeds risk premium and TIPS liquidity premium — not a realized series) |
 
-On low-confidence retry, three additional series are fetched: CFNAI, PERMIT, UMCSENT.
+All features are z-scored on a rolling window using only data published as of the observation date (ALFRED vintage API, no look-ahead bias). Z-scores are clipped at ±3.5 to prevent outlier months (e.g. COVID March 2020) from dominating HMM EM fitting.
 
 ---
 
-## Regime framework
+## Black-Litterman Setup
+
+**Policy prior (neutral allocation):**
+
+| Asset | Policy Weight | ETF Proxy |
+|-------|--------------|-----------|
+| Equities | 40% | SPY |
+| Bonds | 30% | TLT |
+| Inflation Linked | 10% | TIP |
+| Commodities | 8% | GSG |
+| Gold | 7% | GLD |
+| Cash | 5% | BIL |
+
+Note: this is a policy/risk-balanced prior, not a true market-cap equilibrium. BL implied returns are policy-anchored rather than market-clearing.
+
+**View table (Bridgewater heuristic, Path 1 — external prior):**
+
+| Regime | View 1 | View 2 |
+|--------|--------|--------|
+| High Growth / High Inflation | Equities over Bonds +2% | Commodities over Bonds +2% |
+| High Growth / Low Inflation | Equities over Bonds +3% | Equities over Commodities +2% |
+| Low Growth / High Inflation | Commodities over Equities +2.5% | Gold over Bonds +2% |
+| Low Growth / Low Inflation | Bonds over Equities +2% | Gold over Commodities +2% |
+
+**Optimizer bounds (SLSQP):**
+
+| Asset | Bounds |
+|-------|--------|
+| Equities | [20%, 60%] — wider band for equity-benchmarked TAA |
+| Bonds | [15%, 45%] |
+| Inflation Linked | [0%, 25%] |
+| Commodities | [0%, 23%] |
+| Gold | [0%, 22%] |
+| Cash | [0%, 8%] — residual liquidity buffer only |
+
+---
+
+## Regime Framework
 
 Based on the Bridgewater All Weather 2×2 matrix:
 
-| Regime | Growth | Inflation | Favoured assets |
-|--------|--------|-----------|-----------------|
-| High Growth / High Inflation | Rising | Rising | Equities, Commodities |
-| High Growth / Low Inflation | Rising | Falling | Equities, Bonds |
-| Low Growth / High Inflation | Falling | Rising | Commodities, Gold, Cash |
-| Low Growth / Low Inflation | Falling | Falling | Bonds |
+| Regime | Growth | Inflation | Primary tilt |
+|--------|--------|-----------|--------------|
+| High Growth / High Inflation | Rising | Rising | Equities + Commodities |
+| High Growth / Low Inflation | Rising | Falling | Equities (max conviction) |
+| Low Growth / High Inflation | Falling | Rising | Commodities + Gold |
+| Low Growth / Low Inflation | Falling | Falling | Bonds + Gold |
 
 ---
 
-## v2: Backtest engine
+## Backtest Methodology
 
-### Methodology
+### Point-in-time discipline
 
-The backtest runs the full LangGraph pipeline monthly from a user-defined start date to end date, applying two layers of no-look-ahead discipline:
+Every FRED call passes `realtime_start=realtime_end=observation_date`, querying the ALFRED database — FRED's archive of historical data vintages. This returns the data *actually published* on that date, not the current revised figure, eliminating look-ahead bias from data revisions.
 
-**1. Point-in-time FRED data (ALFRED vintages)**
+A disk-persisted z-score cache keyed by `(series_id, observation_date)` reduces ALFRED API calls from O(N²) to O(N) across backtest runs.
 
-Every FRED call in backtest mode passes `realtime_start=realtime_end=observation_date`, querying the ALFRED database — FRED's archive of historical data vintages. This returns the data that was *actually published* on that date, not the current revised figure.
+### Execution convention
 
-Example: Core PCE for February 2020 was initially released as 1.8%. It was later revised to 1.9%. A backtest observation on `2020-03-31` receives 1.8% — what a portfolio manager would have known. Without vintage locking, FRED silently returns the revised figure, introducing look-ahead bias from data revisions.
+Weights at month-end *t* are applied to ETF returns in month *t+1* — the PM decides January 31st but trades February 1st.
 
-**2. Execution lag (weights[t] → returns[t+1])**
+### Benchmarks
 
-Weights determined at month-end *t* are applied to ETF returns in month *t+1*. The PM decides on January 31st but can only trade on February 1st.
+Three benchmarks are computed:
 
-**Asset class proxies**
+| Benchmark | Definition | Purpose |
+|-----------|-----------|---------|
+| Policy mix | Static 40/30/10/8/7/5, monthly rebalanced | **Primary** — isolates regime-overlay alpha from strategic asset mix |
+| 60/40 | 60% SPY + 40% TLT | Reference — what a typical investor holds |
+| Information Ratio | Sharpe of (portfolio - policy) monthly excess returns | Key metric for overlay value-add |
 
-| Asset class | ETF | Rationale |
-|-------------|-----|-----------|
-| Equities | SPY | S&P 500, liquid benchmark |
-| Bonds | TLT | 20Y+ Treasuries |
-| Inflation Linked | TIP | TIPS, correct IL proxy |
-| Commodities | GSG | Broad commodity index |
-| Gold | GLD | Direct gold exposure |
-| Cash | BIL | 1-3M T-Bills |
+The policy mix is the correct primary benchmark for a TAA overlay strategy. 60/40 is retained as a reference but is not the primary success criterion — a 6-asset strategy with 40% policy equity weight is structurally different from a 2-asset 60/40 portfolio.
 
-**Regime hysteresis across months**
+### Backtest results (2015–2024, 119 months)
 
-`previous_regime` is carried forward via the Python loop variable — each month's pipeline receives last month's classification and requires strong contradictory evidence before switching quadrants. LangGraph's checkpointer is intentionally bypassed (fresh thread ID per month) to avoid context bloat over long backtests.
+| Metric | Macro-Lens v3 | Policy Mix | 60/40 |
+|--------|--------------|------------|-------|
+| Total Return | +114.5% | +78.4% | +103.3% |
+| Ann. Return | +8.0% | +6.0% | +7.4% |
+| Sharpe Ratio | 0.61 | 0.49 | 0.53 |
+| Max Drawdown | -17.5% | -19.6% | -26.2% |
+| Info Ratio vs Policy | +0.02 | — | — |
 
-**Rate limit handling**
+**Sub-period performance (regime-conditional):**
 
-Each month sleeps 1 second between iterations. A `tenacity` retry wrapper with exponential backoff handles transient OpenAI rate limit errors without losing prior results.
+| Regime | n months | Mean active return vs 60/40 | Total contribution |
+|--------|----------|----------------------------|-------------------|
+| High Growth / High Inflation | 68 | +0.06% | +3.8% |
+| High Growth / Low Inflation | 27 | +0.28% | +7.6% |
+| Low Growth / High Inflation | 10 | -1.28% | -11.5% |
+| Low Growth / Low Inflation | 15 | +0.27% | +3.8% |
 
-### Backtest results
+**Pattern:** The strategy adds value in High Growth periods (dominant regime, 95 of 119 months) and Low Growth/Low Inflation defensive periods. The -11.5% drag from Low Growth/High Inflation is concentrated in 9 months around COVID (Feb-Apr 2020), where the model correctly identified slowing growth but held stagflation hedges (commodities + gold) into a deflationary liquidity crash — the worst environment for real assets. Without the COVID misclassification, total active contribution would be approximately +4pp positive.
 
-| Period | Macro-Lens | 60/40 | Max DD (ML) | Max DD (60/40) |
-|--------|-----------|-------|-------------|----------------|
-| 2015 (mid-cycle) | -9.7% | -2.0% | -10.3% | -6.1% |
-| 2017–2018 (Goldilocks) | +7.2% | +11.1% | -6.3% | -7.6% |
-| 2020–2022 (COVID + stagflation) | +11.3% | +1.7% | -14.7% | -26.2% |
+**Average weights by regime:**
 
-**Pattern:** The model earns its keep in genuine macro stress and transition regimes (2020–2022), and underperforms in smooth bull markets and commodity-bearish environments (2015, 2017). This is expected behaviour for a regime-aware strategy — it is not designed to beat 60/40 in Goldilocks, it is designed to avoid the tail drawdowns.
+| Regime | Equities | Bonds | IL | Commodities | Gold | Cash |
+|--------|----------|-------|----|-------------|------|------|
+| HG/HI | 58% | 17% | 1% | 22% | 1% | 2% |
+| HG/LI | 58% | 17% | 12% | 8% | 1% | 5% |
+| LG/HI | 27% | 17% | 10% | 21% | 20% | 5% |
+| LG/LI | 22% | 44% | 9% | 1% | 21% | 4% |
 
-### Known limitations
+---
 
-- **Commodity sensitivity** — the model tends to overweight commodities during Low Growth / High Inflation regimes. In periods where inflation is driven by demand rather than supply (e.g. 2015 oil crash), this tilt hurts.
-- **LLM non-determinism** — `temperature=0` gives high but not perfect reproducibility across runs. Minor classification differences are possible.
-- **ETF history** — some proxies (BIL, TIP) have limited history pre-2007. Backtests starting before 2007 may have sparser data.
-- **No transaction costs** — weights change monthly with no slippage or rebalancing cost modelled.
+## Live Analysis (June 2026)
+
+Current regime call: **Low Growth / Low Inflation** (94.1% confidence)
+
+Key drivers: CFNAI at 0.14 (mildly positive but below trend), flat yield curve (T10Y2Y = 0.39), Sahm Rule at 0.10 (not triggered but rising), Financial Stress at -0.87 (low). Current BL allocation: 44% bonds, 21% gold, 21% equities, minimal commodities.
+
+---
+
+## Known Limitations and Model Misspecification
+
+### 1. Inflation signal lag — the most important current limitation
+
+The HMM inflation features (PCEPILFE, CPIAUCSL) are z-scored on a 60-month rolling window. When the trailing window includes the 2021-2023 high-inflation period (PCE at 5-6%), a current reading of 2.7% PCE looks "low" relative to that window mean, producing a negative inflation z-score even though 2.7% is above the Fed's 2% target. As of June 2026, the model calls Low Inflation while consensus forecasts (US Bank, JPMorgan, Morningstar) put 2026 PCE at 2.7-3.6% with Fed on hold and rate hike risk rising. The 60m window is too long for detecting the current inflation regime boundary — the model is a coincident indicator of realized data relative to recent history, not an absolute inflation level detector.
+
+### 2. COVID regime misclassification (known, structural)
+
+February-April 2020 is classified as Low Growth/High Inflation because PCEPILFE was running above its trailing mean going into the crash. COVID was a deflationary demand shock — the correct regime was Low Growth/Low Inflation. The stagflation allocation (commodities + gold) lost significantly relative to 60/40 during the March crash (equities) and April recovery (missed the V-shape). This accounts for -11.5pp of total active return drag from just 9 months. FRED reporting lag (INDPRO/UNRATE for March 2020 published in April) means the growth signal was also a month behind. This is expected behaviour for a monthly coincident indicator — no fix without introducing look-ahead.
+
+### 3. Independence assumption between growth and inflation HMMs
+
+Joint regime probability = P(growth) × P(inflation) assumes the two dimensions are independent. They are not — the business cycle creates empirical correlation between growth and inflation states. The cost lands precisely on the off-diagonal cells (stagflation and Goldilocks) where the All-Weather logic earns its keep. A joint 4-state HMM over 4 features would be more correct but has ~47 parameters estimated from ~120 autocorrelated months (roughly 5-10 distinct regime episodes) — severely overparameterized. The independence factorization follows Kritzman, Page & Turkington (2012, FAJ) who used the same approach.
+
+### 4. CFNAI as growth proxy — services blind spot
+
+CFNAI aggregates 85 indicators but is still weighted toward production, employment, and orders. During the 2015-2016 industrial recession (oil price collapse), CFNAI correctly called weak industrial activity — but equity markets returned ~12% because the service sector was fine. A growth indicator better correlated with equity earnings (e.g. Conference Board coincident index, GDP nowcasts) would be more appropriate for an equity-benchmarked TAA strategy.
+
+### 5. Unconstrained MV replaced but BL prior is not true market-cap
+
+MARKET_WEIGHTS (40/30/10/8/7/5) is a policy/risk-balanced prior, not a true market-cap equilibrium. BL reverse-optimization produces implied returns that rationalize the policy mix, not market-clearing returns. The equilibrium prior is policy-anchored — defensible as a TAA starting point but loses the CAPM grounding that motivates canonical BL.
+
+### 6. Single equity sleeve — no sector differentiation
+
+The equity allocation is entirely in SPY (cap-weighted S&P 500). The model has no mechanism to differentiate sector exposure within equities based on the macro regime — e.g. overweighting energy in High Inflation, overweighting technology in Goldilocks. This is the primary v4 opportunity (see Roadmap).
+
+### 7. TLT as bond proxy — duration mismatch
+
+TLT tracks 20Y+ Treasuries, far more volatile than aggregate bond exposure. During 2022, TLT fell ~30% while the Bloomberg Aggregate (AGG) fell ~13%. The bond sleeve performance is amplified by duration risk beyond what "30% bonds" implies for most investors.
+
+### 8. No transaction costs
+
+Monthly rebalancing with no slippage, bid-ask spread, or market impact modelled. In practice, moving 10-15% of a portfolio monthly would incur meaningful execution costs, particularly for less liquid ETFs (GSG, TIP).
+
+### 9. In-sample backtest — data mining risk
+
+The five architectural changes in v3 (CFNAI over INDPRO, CPIAUCSL over T10YIE, constrained MVO, ±15% TAA bands, two views per regime) were motivated by a combination of literature (KPT 2012, NBER, institutional practice) and observed backtest performance over the 2015-2024 window. The feature selection (CFNAI) is grounded in independent literature; the optimizer bounds and view structure are partially fitted to the known sample. An out-of-sample test (2010-2014 or forward) would be needed to validate whether the IR vs policy (+0.02) is genuine signal or in-sample optimism.
 
 ---
 
 ## Stack
 
-- **LangGraph** — stateful graph with conditional routing and MemorySaver checkpointing
-- **LangChain + OpenAI** — GPT-4o-mini for regime classification and allocation generation
+- **LangGraph** — stateful graph with MemorySaver checkpointing; fresh thread ID per backtest month to prevent context bloat
+- **hmmlearn** — GaussianHMM for regime classification (2-state, diagonal covariance)
+- **scipy** — SLSQP constrained optimization for BL portfolio construction
+- **LangChain + OpenAI** — GPT-4o-mini for narrative rationale only (live mode)
 - **fredapi** — FRED macroeconomic data with ALFRED vintage support (free API key required)
-- **yfinance** — VIX and asset class price data
+- **yfinance** — ETF price history and VIX
 - **Gradio** — dashboard UI with live analysis and backtest tabs
 - **Plotly** — interactive equity curve, regime timeline, active return chart
-- **Pydantic** — structured LLM output validation
-- **tenacity** — retry logic for OpenAI rate limit handling
-- **LangSmith** — full trace visibility per monthly pipeline run (optional)
+- **tenacity** — retry logic for FRED rate limit handling
 
 ---
 
@@ -176,13 +261,14 @@ uv run python app.py
 
 ---
 
-## Planned (v3)
+## v4 Roadmap
 
-- **Result caching** — persist backtest output to JSON/SQLite; reload instantly without re-running 180 LLM calls
-- **Async FRED fetching** — fetch all series concurrently within a month, cutting per-month time from ~15s to ~3s
-- **Black-Litterman weight optimisation** — replace the tilt map with a full BL model using yFinance covariance matrices
-- **Regime persistence** — write final state to disk, enabling genuine hysteresis across daily runs
-- **Conversational layer** — ask follow-up questions about the current allocation via a chat interface
+- **Sector rotation layer** — allocate the equity sleeve across sector ETFs (XLK, XLF, XLV, XLY, XLP, XLI, XLE, XLB, XLC, XLU, XLRE) using macro regime + LLM sentiment analysis, following the ICLR 2025 paper "Leveraging LLMs for Top-Down Sector Allocation in Automated Trading" (Quek et al., 2025)
+- **LLM macro memory module** — store FOMC minutes summaries and regime history across runs; give the narrative agent longitudinal context rather than single-month snapshots
+- **News sentiment overlay** — dual-stream processing of macro data + news sentiment for sector selection within the equity sleeve
+- **Confirmation filter** — only rebalance when dominant regime has been stable for 2 consecutive months, reducing whipsaw transaction costs
+- **Absolute inflation anchor** — supplement the rolling z-score inflation signal with an absolute level check (e.g. PCE > 2.5% flags High Inflation regardless of z-score) to fix the window-anchoring limitation in post-high-inflation periods
+- **Quarterly rebalancing** — align rebalancing cadence with HMM refit cadence to reduce noise from monthly regime flips
 
 ---
 
