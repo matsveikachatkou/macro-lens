@@ -97,7 +97,7 @@ def _build_equity_chart(equity_curve, benchmark_curve, policy_curve, monthly_rec
             fig.add_vrect(
                 x0=start, x1=end,
                 fillcolor=REGIME_COLORS.get(regime, "#e2e8f0"),
-                opacity=0.12, line_width=0, row=1, col=1,
+                opacity=0.12, line_width=0, row=1, col=1, layer="below"
             )
 
         for rec in monthly_records:
@@ -132,18 +132,19 @@ def _build_equity_chart(equity_curve, benchmark_curve, policy_curve, monthly_rec
         fig.add_hline(y=0, line_width=1, line_color="#64748b", row=2, col=1)
 
     fig.update_layout(
-        height=520,
-        margin=dict(l=0, r=0, t=40, b=0),
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1),
-        hovermode="x unified",
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#e2e8f0"),
-        xaxis=dict(showgrid=False, zeroline=False),
-        yaxis=dict(gridcolor="rgba(255,255,255,0.06)", zeroline=False),
-        xaxis2=dict(showgrid=False, zeroline=False),
-        yaxis2=dict(gridcolor="rgba(255,255,255,0.06)", zerolinecolor="#64748b"),
-    )
+            height=520,
+            margin=dict(l=0, r=0, t=40, b=0),
+            legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1),
+            hovermode="x unified",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="#64748b"), 
+            xaxis=dict(showgrid=False, zeroline=False),
+            yaxis=dict(gridcolor="rgba(100, 116, 139, 0.2)", zeroline=False), # Transparent mid-tone
+            xaxis2=dict(showgrid=False, zeroline=False),
+            yaxis2=dict(gridcolor="rgba(100, 116, 139, 0.2)", zerolinecolor="#64748b"),
+        )
+
     return fig
 
 
@@ -173,19 +174,20 @@ def _build_regime_timeline(monthly_records: list) -> go.Figure:
         ))
 
     fig.update_layout(
-        height=100,
-        margin=dict(l=0, r=0, t=4, b=0),
-        bargap=0.0,
-        yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
-        xaxis=dict(showgrid=False, zeroline=False),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter, sans-serif", color="#e2e8f0", size=11),
-        legend=dict(
-            orientation="h", yanchor="top", y=-0.4,
-            xanchor="center", x=0.5, font=dict(size=10),
-        ),
-    )
+            height=100,
+            margin=dict(l=0, r=0, t=4, b=0),
+            bargap=0.0,
+            yaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
+            xaxis=dict(showgrid=False, zeroline=False),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(family="Inter, sans-serif", color="#64748b", size=11), # Mid-tone grayish-blue
+            legend=dict(
+                orientation="h", yanchor="top", y=-0.4,
+                xanchor="center", x=0.5, font=dict(size=10),
+            ),
+        )
+
     return fig
 
 
@@ -225,7 +227,7 @@ def _metrics_html(metrics: dict) -> str:
       .mt td { padding:8px 12px; border-bottom:1px solid #1e293b; }
       .mt tr:last-child td { border-bottom:none; }
       .port  { color:#6366f1; font-weight:600; }
-      .policy { color:#f59e0b; font-weight:600; }
+      .policy { color:#f59e0b; font-weight:400; }
       .bench { color:#94a3b8; }
     </style>
     <table class="mt">
@@ -238,7 +240,7 @@ def _metrics_html(metrics: dict) -> str:
     """
     for label, port_val, policy_val, bench_val in rows:
         html += (
-            f"<tr><td style='color:#cbd5e1'>{label}</td>"
+            f"<tr><td style='color:inherit; font-weight:500;'>{label}</td>"
             f"<td class='port'>{port_val}</td>"
             f"<td class='policy'>{policy_val}</td>"
             f"<td class='bench'>{bench_val}</td></tr>"
@@ -508,7 +510,7 @@ with gr.Blocks(title="macro-lens v4") as ui:
                     step=1, label="Start Year"
                 )
                 end_slider = gr.Slider(
-                    minimum=2011, maximum=2026, value=2024,
+                    minimum=2011, maximum=2025, value=2024,
                     step=1, label="End Year"
                 )
 
@@ -549,7 +551,6 @@ with gr.Blocks(title="macro-lens v4") as ui:
                 outputs=[bt_run_btn],
             )
 
-
 if __name__ == "__main__":
     ui.launch(
         inbrowser=True,
@@ -557,8 +558,5 @@ if __name__ == "__main__":
         css="""
             * { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; }
             .gradio-container { max-width: 1400px !important; }
-            .gradio-plot { background: transparent !important; }
-            .gradio-plot > div { background: transparent !important; }
-            .gradio-plot iframe { background: transparent !important; }
         """
     )
