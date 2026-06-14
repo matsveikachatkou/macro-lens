@@ -13,7 +13,7 @@ Prompt version: v4-validator-1.0
 Cache key:      hash(blinded_input_dict) — NOT (date, regime). Blinding is the point.
 """
 
-PROMPT_VERSION = "v4-validator-1.0"
+PROMPT_VERSION = "v4-validator-1.1"
 
 # ---------------------------------------------------------------------------
 # GATE THRESHOLDS
@@ -176,6 +176,10 @@ OVERRIDE DISCIPLINE:
   When stress signals (VIX, HY) sharply contradict growth signals (CFNAI), weight the 
   stress signals more heavily for regime classification.
 - If you OVERRIDE, the replacement regime must be one of the four valid labels exactly.
+- GATE 2 CONSTRAINT (non-negotiable): if these instructions were triggered by a gate
+  stating PCE YoY > 2.5% with HMM calling Low Inflation, your replacement regime MUST
+  contain "High Inflation". Replacing Low Inflation with Low Inflation after a Gate 2
+  trigger is a logical contradiction and invalid.
 
 OUTPUT FORMAT (strict JSON, nothing else):
 {
